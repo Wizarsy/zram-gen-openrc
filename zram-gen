@@ -5,8 +5,9 @@ description=""
 start_pre() {
   ebegin "Checking the status of the zram module"
   if ! [ -d "/sys/module/zram" ]; then
-    if modprobe --dry-run 2> /dev/null; then
+    if modprobe --dry-run zram &> /dev/null; then
       modprobe zram && einfo "Zram module loaded"
+      sleep 0.1
     fi
   else
     einfo "Zram module already loaded"
@@ -16,100 +17,127 @@ start_pre() {
 }
 
 start() {
-  err=0 i=0
-  enable="" size="" comp_algo="" algo_params="" mem_limit="" priority="" discard_opt="" backing_dev=""
-  swapon_discard_opt="" mem_to_alloc=""
+  local enable="" size="" comp_algo="" algo_params="" \
+    mem_limit="" priority="" discard_opt="" backing_dev="" \
+    swapon_discard_opt="" mem_to_alloc="" status="" i=0
 
-  supported_algo=$(sed "{s/[][]//g;s/[[:blank:]]/\|/g;s/\|$//}" /sys/block/zram0/comp_algorithm)
+  supported_algo=$(sed "s/[][]//g" /sys/block/zram0/comp_algorithm)
+
   while read -r mem_header mem_size _; do [ "$mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   mem_size=$((mem_size / 1024))
-  eval "enable=\$ZRAM${i}"
 
+  eeinfo "Total host memory: ${mem_size}MiB"
+
+  eval "enable=\$ZRAM${i}"
   while test -n "$enable" && "$enable"; do
-    [ -b "/sys/block/zram${i}" ] || read -r _ < /sys/class/zram-control/hot_add
-    if [ $? -eq 0 ]; then
-      eval "size=\${ZRAM${i}_SIZE:-25%}"
-      eval "comp_algo=\$ZRAM${i}_COMP_ALGO"
-      eval "algo_dict=\$ZRAM${i}_ALGO_DICT"
-      eval "mem_limit=\${ZRAM${i}_MEM_LIMIT:-4G}"
-      eval "priority=\${ZRAM${i}_PRIORITY:-32767}"
-      eval "discard_opt=\${ZRAM${i}_DISCARD_OPT:-both}"
-      eval "backing_dev=\$ZRAM${i}_BACKING_DEV"
-      
-      echo 1 > "/sys/block/zram${i}/reset"
-      ! [ -n "$backing_dev" -a -b "$backing_dev" ] || echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" || ewarn
-      
-      case "${size##*[0-9]}" in
-        %)
-          mem_to_alloc="$((${size%\%} * mem_size / 100))"
-          ;;
-        x|X)
-          val="$(printf "%.2f" "${size%[xX]}" | { IFS=. read -r x y; printf "%d" $(( (x * 100) + y  )) ; })"
-          mem_to_alloc="$(( val * mem_size / 100 ))"
-          ;;
+    [ -b "/dev/zram${i}" ] \
+      || read -r _ < /sys/class/zram-control/hot_add \
+      || eerror "Failed to hot add the zram device: /dev/zram${i}" \
+      && break
+
+    eeinfo "Initializing zram device: /dev/zram${i}"
+
+    echo 1 > "/sys/block/zram${i}/reset"
+
+    eval "size=\${ZRAM${i}_SIZE:-25%}"
+    eval "discard_opt=\${ZRAM${i}_DISCARD_OPT:-both}"
+    eval "priority=\${ZRAM${i}_PRIORITY:-32767}"
+    eval "mem_limit=\$ZRAM${i}_MEM_LIMIT"
+    eval "comp_algo=\$ZRAM${i}_COMP_ALGO"
+    eval "algo_dict=\$ZRAM${i}_ALGO_DICT"
+    eval "backing_dev=\$ZRAM${i}_BACKING_DEV"
+    
+    ! [ -n "$backing_dev" -a -b "$backing_dev" ] \
+      || echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" \
+      || ewarn "Failed to write zram${i} backing device"
+    
+    case "${size##*[0-9]}" in
+      %)
+        mem_to_alloc="$((${size%\%} * mem_size / 100))"
+        ;;
+      x|X)
+        val="$(printf "%.2f" "${size%[xX]}" | { IFS=. read -r x y; printf "%d" $(( (x * 100) + y  )) ; })"
+        mem_to_alloc="$(( val * mem_size / 100 ))"
+        ;;
+      [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
+        mem_to_alloc=$size
+        ;;
+      *)
+        ewarn "Invalid value for size, using default"
+        mem_to_alloc="$((25 * mem_size / 100))"
+        ;;
+    esac
+
+    echo "${mem_to_alloc}MiB" > "/sys/block/zram${i}/disksize"
+
+    status="Size: ${mem_to_alloc}"
+
+    if [ -n "$mem_limit" ]; then
+      case "${mem_limit##*[0-9]}" in
         [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
-          mem_to_alloc=$size
+          echo "$mem_limit" > "/sys/block/zram${i}/mem_limit"
+          status="Memory Limit: ${mem_limit}"
           ;;
         *)
-          ewarn "Invalid value for size, using default"
-          mem_to_alloc="$((25 * mem_size / 100))"
+          ewarn "Invalid value for memory limit, using default"
           ;;
       esac
+    fi
 
-      if [ -n "$comp_algo" ]; then
+    if [ -n "$comp_algo" ]; then
+      { echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null \
+        ; status="${status} Algorithm: ${comp_algo}" ; }  \
+        || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]"
+
+      if [ "${comp_algo%%:*}" != "${comp_algo##*:}" ]; then
         algo_params="algo=${comp_algo%%:*}"
-        case $comp_algo in
-          "$supported_algo")
-            echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null
-            ;;
-          *)
-            ewarn "Invalid compression algorithm chosen, using default. This kernel only support: $supported_algo"
-            ;;
-        esac
         case ${comp_algo##*:} in
           [0-9]*|-[0-9]*)
             algo_params="${algo_params} level=${comp_algo##*:}"
+            status="${status} Algorithm Lvl: ${comp_algo}"
             ;;
           *)
-            [ "${comp_algo%%:*}" == "${comp_algo##*:}" ] || ewarn "Invalid compression algorithm level"
+            ewarn "Invalid compression algorithm level"
             ;;
         esac
-        [ -n "$algo_dict" -a "$algo_dict" ] || algo_params="${algo_params} dict=${algo_dict}"
+        ! [ -n "$algo_dict" -a -f "$algo_dict" ] \
+          || algo_params="${algo_params} dict=${algo_dict}"
         echo "${algo_params}" > "/sys/block/zram${i}/algorithm_params"
       fi
-
-      echo "${mem_to_alloc}MiB" > "/sys/block/zram${i}/disksize"
-
-      [ -n "$mem_limit" ] || echo "${mem_limit}MiB" > "/sys/block/zram${i}/mem_limit"
-
-      mkswap --uuid clear --label "ZRAM${i}" "/dev/zram${i}" &> /dev/null
-      
-      case "$discard_opt" in
-        false|none)
-          ;;
-        true|both)
-          swapon_discard_opt="--discard"
-          ;;
-        once)
-          swapon_discard_opt="--discard=once"
-          ;;
-        pages)
-          swapon_discard_opt="--discard=pages"
-          ;;
-        *)
-          ewarn "Invalid value for discard, using default"
-          swapon_discard_opt="--discard"
-          ;;
-      esac
-
-      swapon "$swapon_discard_opt" --priority "$priority" "/dev/zram${i}" &> /dev/null
-
-      ln -sf "/dev/zram${i}" "/var/run/zram-gen/zram${i}"
-      i=$((i + 1))
-      eval enable=\$ZRAM${i}
     fi
+
+    case "$discard_opt" in
+      false|none)
+        ;;
+      true|both)
+        swapon_discard_opt="--discard"
+        ;;
+      once)
+        swapon_discard_opt="--discard=once"
+        ;;
+      pages)
+        swapon_discard_opt="--discard=pages"
+        ;;
+      *)
+        ewarn "Invalid value for discard, using default"
+        swapon_discard_opt="--discard"
+        ;;
+    esac
+
+    [ -n "$priority" -a "$priority" -gt 32767 ] \
+    || ewarn "Invalid swap priority, using default." \
+    && priority=32767
+    
+    (mkswap --uuid clear --label "ZRAM${i}" "/dev/zram${i}" &> /dev/null \
+      && swapon "$swapon_discard_opt" --priority "$priority" "/dev/zram${i}" &> /dev/null \
+      && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}") \
+      || eerror "Failed to c" \
+      && break
+
+    i=$((i + 1))
+    eval enable=\$ZRAM${i}
   done
-  eend "$err" "err"
+  eend "$?" "Failed to create zram swap device(s)"
 }
 
 stop() {
@@ -118,10 +146,6 @@ stop() {
     dev_name="${device##*\/}"
     einfo "Removing zram device: /dev/${dev_name}"
     swapoff "/dev/${dev_name}"
-    # while ! echo 1 > "/sys/block/${dev_name}/reset"; do
-    #   ewarn "Device or resouce busy"
-    #   sleep 1
-    # done
     rm -f "/var/run/zram-gen/${dev_name}"
     einfo "Removed zram device: /dev/${dev_name}"
   done
@@ -129,10 +153,13 @@ stop() {
 }
 
 stop_post() {
-  read -r refcnt < /sys/module/zram/refcnt
-  if [ "$RC_CMD" != "restart" -a "$refcnt" -eq 0 ]; then
-    modprobe -r zram && einfo "Zram module unloaded"
-    [ -d "/var/run/zram-gen" ] && rm -rf /var/run/zram-gen
+  if [ -d "/sys/module/zram" ]; then
+    sleep 0.1
+    read -r refcnt < /sys/module/zram/refcnt
+    if [ "$RC_CMD" != "restart" -a "$refcnt" -eq 0 ]; then
+      modprobe -r zram && einfo "Zram module unloaded"
+      [ -d "/var/run/zram-gen" ] && rm -rf /var/run/zram-gen
+    fi
   fi
   eend $? "Failed to remove zram module"
 }
