@@ -3,7 +3,8 @@
 description=""
 
 start_pre() {
-  ebegin "Checking the status of the zram module"
+  ebegin "Starting zram-gen"
+  einfo "Checking the status of the zram module"
   if ! [ -d "/sys/module/zram" ]; then
     if modprobe --dry-run zram &> /dev/null; then
       modprobe zram && einfo "Zram module loaded"
@@ -12,7 +13,7 @@ start_pre() {
   else
     einfo "Zram module already loaded"
   fi
-  [ $? -eq 0 ] || mkdir -p /var/run/zram-gen
+  [ $? -eq 0 ] && mkdir -p /var/run/zram-gen
   eend "$?" "Could not find or load zram module"
 }
 
@@ -22,23 +23,15 @@ start() {
     swapon_discard_opt="" mem_to_alloc="" status="" i=0
 
   supported_algo=$(sed "s/[][]//g" /sys/block/zram0/comp_algorithm)
+  read -r supported_algo < /sys/block/zram0/comp_algorithm
 
   while read -r mem_header mem_size _; do [ "$mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   mem_size=$((mem_size / 1024))
 
-  eeinfo "Total host memory: ${mem_size}MiB"
+  einfo "Total host memory: ${mem_size}MiB"
 
   eval "enable=\$ZRAM${i}"
-  while test -n "$enable" && "$enable"; do
-    [ -b "/dev/zram${i}" ] \
-      || read -r _ < /sys/class/zram-control/hot_add \
-      || eerror "Failed to hot add the zram device: /dev/zram${i}" \
-      && break
-
-    eeinfo "Initializing zram device: /dev/zram${i}"
-
-    echo 1 > "/sys/block/zram${i}/reset"
-
+  while [ "$enable" == "true" ]; do
     eval "size=\${ZRAM${i}_SIZE:-25%}"
     eval "discard_opt=\${ZRAM${i}_DISCARD_OPT:-both}"
     eval "priority=\${ZRAM${i}_PRIORITY:-32767}"
@@ -46,11 +39,43 @@ start() {
     eval "comp_algo=\$ZRAM${i}_COMP_ALGO"
     eval "algo_dict=\$ZRAM${i}_ALGO_DICT"
     eval "backing_dev=\$ZRAM${i}_BACKING_DEV"
+
+    [ -b "/dev/zram${i}" ] \
+      || read -r _ < /sys/class/zram-control/hot_add \
+      || { eerror "Failed to hot add the zram device: /dev/zram${i}" \
+      && break ; }
+
+    einfo "Initializing zram device: /dev/zram${i}"
     
+    echo 1 > "/sys/block/zram${i}/reset"
+
     ! [ -n "$backing_dev" -a -b "$backing_dev" ] \
       || echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" \
       || ewarn "Failed to write zram${i} backing device"
     
+    if [ -n "$comp_algo" ]; then
+      { echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null \
+        && status="${status} Algorithm: ${comp_algo}" ; }  \
+        || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]"
+
+      if [ "${comp_algo%%:*}" != "${comp_algo##*:}" ]; then
+        
+        algo_params="algo=${comp_algo%%:*}"
+        case ${comp_algo##*:} in
+          [0-9]*|-[0-9]*)
+            algo_params="${algo_params} level=${comp_algo##*:}"
+            status="${status} Algorithm Lvl: ${comp_algo}"
+            ;;
+          *)
+            ewarn "Invalid compression algorithm level"
+            ;;
+        esac
+        ! [ -n "$algo_dict" -a -f "$algo_dict" ] \
+          || algo_params="${algo_params} dict=${algo_dict}"
+        echo "${algo_params}" > "/sys/block/zram${i}/algorithm_params"
+      fi
+    fi
+
     case "${size##*[0-9]}" in
       %)
         mem_to_alloc="$((${size%\%} * mem_size / 100))"
@@ -84,28 +109,6 @@ start() {
       esac
     fi
 
-    if [ -n "$comp_algo" ]; then
-      { echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null \
-        ; status="${status} Algorithm: ${comp_algo}" ; }  \
-        || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]"
-
-      if [ "${comp_algo%%:*}" != "${comp_algo##*:}" ]; then
-        algo_params="algo=${comp_algo%%:*}"
-        case ${comp_algo##*:} in
-          [0-9]*|-[0-9]*)
-            algo_params="${algo_params} level=${comp_algo##*:}"
-            status="${status} Algorithm Lvl: ${comp_algo}"
-            ;;
-          *)
-            ewarn "Invalid compression algorithm level"
-            ;;
-        esac
-        ! [ -n "$algo_dict" -a -f "$algo_dict" ] \
-          || algo_params="${algo_params} dict=${algo_dict}"
-        echo "${algo_params}" > "/sys/block/zram${i}/algorithm_params"
-      fi
-    fi
-
     case "$discard_opt" in
       false|none)
         ;;
@@ -124,18 +127,19 @@ start() {
         ;;
     esac
 
-    [ -n "$priority" -a "$priority" -gt 32767 ] \
-    || ewarn "Invalid swap priority, using default." \
-    && priority=32767
+    ! [ -n "$priority" -a "$priority" -gt 32767 ] \
+      || { ewarn "Invalid swap priority, using default." \
+      && priority=32767 ; }
     
-    (mkswap --uuid clear --label "ZRAM${i}" "/dev/zram${i}" &> /dev/null \
+    { mkswap --uuid clear --label "ZRAM${i}" "/dev/zram${i}" &> /dev/null \
       && swapon "$swapon_discard_opt" --priority "$priority" "/dev/zram${i}" &> /dev/null \
-      && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}") \
-      || eerror "Failed to c" \
-      && break
+      && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}" ; } \
+      || { eerror "Failed to c" \
+      && break ; }
 
     i=$((i + 1))
     eval enable=\$ZRAM${i}
+    sleep 0.1
   done
   eend "$?" "Failed to create zram swap device(s)"
 }
