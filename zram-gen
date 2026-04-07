@@ -6,6 +6,18 @@ depend() {
   need localmount swap
 }
 
+_timeout() {
+  local t=$(($1 * 10)) i=0 
+  shift
+  while [ "$i" -lt "$t" ]; do
+    "$@" 2> /dev/null && return 0
+    i=$((i + 1))
+    sleep 0.1
+  done
+  ewarn "Timeout reached, device or resource busy."
+  return 1
+}
+
 start_pre() {
   ebegin "Starting zram-gen"
   einfo "Checking the status of the zram module"
@@ -54,14 +66,13 @@ start() {
     done
 
     [ -b "/dev/zram${i}" ] \
-      || { read -r _ < /sys/class/zram-control/hot_add \
-      && sleep 1 ; } \
+      || _timeout 10 read -r _ < /sys/class/zram-control/hot_add \
       || { eerror "Failed to hot add a zram device" \
       && break ; }
 
     einfo "Initializing zram device: /dev/zram${i}"
     
-    echo 1 > "/sys/block/zram${i}/reset" \
+    _timeout 10 echo 1 > "/sys/block/zram${i}/reset" \
       || { ewarn "Failed to reset zram device, device or resource busy" \
       && i=$((i + 1)) \
       && continue ; }
@@ -144,9 +155,8 @@ stop() {
 
 stop_post() {
   if [ -d "/sys/module/zram" ]; then
-    sleep 0.1
-    read -r refcnt < /sys/module/zram/refcnt
-    if [ "$RC_CMD" != "restart" -a "$refcnt" -eq 0 ]; then
+    _timeout 10 read -r refcnt < /sys/module/zram/refcnt
+    if [ $? -eq 0 -a "$RC_CMD" != "restart" -a "$refcnt" -eq 0 ]; then
       modprobe -r zram && einfo "Zram module unloaded"
       [ $? -eq 0 -a -d "/var/run/zram-gen" ] && rm -rf /var/run/zram-gen
     fi
