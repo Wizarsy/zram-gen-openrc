@@ -54,7 +54,8 @@ start() {
     done
 
     [ -b "/dev/zram${i}" ] \
-      || read -r _ < /sys/class/zram-control/hot_add \
+      || { read -r _ < /sys/class/zram-control/hot_add \
+      && sleep 1 ; } \
       || { eerror "Failed to hot add a zram device" \
       && break ; }
 
@@ -124,7 +125,6 @@ start() {
       || eerror "Failed to initialize zram swap device: /dev/zram${i}"
 
     i=$((i + 1))
-    sleep 0.1
   done
   eend "$?" "Failed to create zram swap device(s)"
 }
