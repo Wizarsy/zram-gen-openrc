@@ -2,6 +2,10 @@
 
 description="Manages zram swap devices"
 
+depend() {
+  need localmount swap
+}
+
 start_pre() {
   ebegin "Starting zram-gen"
   einfo "Checking the status of the zram module"
