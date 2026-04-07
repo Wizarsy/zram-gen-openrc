@@ -31,7 +31,7 @@ start() {
 
   einfo "Total host memory: ${mem_total}MiB"
 
-  while eval "[ '\${ZRAM${i}:-false}' == 'true' ]"; do
+  while eval "[ \${ZRAM${i}:-false} == 'true' ]"; do
     eval "size=\${ZRAM${i}_SIZE:-25%}"
     eval "discard_opt=\${ZRAM${i}_DISCARD_OPT:-both}"
     eval "priority=\${ZRAM${i}_PRIORITY:-32767}"
@@ -57,9 +57,9 @@ start() {
     einfo "Initializing zram device: /dev/zram${i}"
     
     echo 1 > "/sys/block/zram${i}/reset" \
-      || ewarn "Failed to reset zram device, device or resource busy" \
+      || { ewarn "Failed to reset zram device, device or resource busy" \
       && i=$((i + 1)) \
-      && continue
+      && continue ; }
 
     [ -n "$backing_dev" ] \
       && { echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" \
@@ -80,10 +80,6 @@ start() {
 
     echo "${mem_to_alloc}MiB" > "/sys/block/zram${i}/disksize"
 
-    [ -n "$backing_dev" -a -n "$writeback" ] \
-      && { echo "$writeback" > "/sys/block/zram${i}/writeback" \
-      || ewarn "Failed to set zram${i} writeback" ; }
-
     [ -n "$mem_limit" ] \
       && { echo "$mem_limit" > "/sys/block/zram${i}/mem_limit" \
       || ewarn "Invalid value for memory limit, using default" ; }
@@ -95,6 +91,10 @@ start() {
     [ -n "$algo_params" ] \
       && { echo "algo=${comp_algo%%:*} ${algo_params}" > "/sys/block/zram${i}/algorithm_params" \
       || ewarn "Invalid compression algorithm parameters" ; }
+
+    [ -n "$backing_dev" -a -n "$writeback" ] \
+      && { echo "$writeback" > "/sys/block/zram${i}/writeback" \
+      || ewarn "Failed to set zram${i} writeback" ; }
 
     case "$discard_opt" in
       both)
