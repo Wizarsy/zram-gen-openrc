@@ -65,6 +65,14 @@ start() {
       && { echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" \
       || ewarn "Failed to write zram${i} backing device" ; }
 
+    [ -n "$comp_algo" ] \
+      && { echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null \
+      || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]" ; }
+    
+    [ -n "$algo_params" ] \
+      && { echo "algo=${comp_algo%%:*} ${algo_params}" > "/sys/block/zram${i}/algorithm_params" \
+      || ewarn "Invalid compression algorithm parameters" ; }
+
     case "${size##*[0-9]}" in
       %)
         mem_to_alloc="$((${size%\%} * mem_total / 100))"
@@ -83,14 +91,6 @@ start() {
     [ -n "$mem_limit" ] \
       && { echo "$mem_limit" > "/sys/block/zram${i}/mem_limit" \
       || ewarn "Invalid value for memory limit, using default" ; }
-
-    [ -n "$comp_algo" ] \
-      && { echo "$comp_algo" > "/sys/block/zram${i}/comp_algorithm" 2> /dev/null \
-      || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]" ; }
-    
-    [ -n "$algo_params" ] \
-      && { echo "algo=${comp_algo%%:*} ${algo_params}" > "/sys/block/zram${i}/algorithm_params" \
-      || ewarn "Invalid compression algorithm parameters" ; }
 
     [ -n "$backing_dev" -a -n "$writeback" ] \
       && { echo "$writeback" > "/sys/block/zram${i}/writeback" \
