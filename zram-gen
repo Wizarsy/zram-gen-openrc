@@ -23,13 +23,14 @@ start_pre() {
   einfo "Checking the status of the zram module"
   if ! [ -d "/sys/module/zram" ]; then
     if modprobe --dry-run zram &> /dev/null; then
-      modprobe zram && einfo "Zram module loaded"
+      modprobe zram &> /dev/null \
+        && einfo "Zram module loaded"
       sleep 0.1
     fi
   else
     einfo "Zram module already loaded"
   fi
-  [ $? -eq 0 ] && mkdir -p /var/run/zram-gen
+  [ $? -eq 0 ] && mkdir -p /var/run/zram-gen &> /dev/null
   eend "$?" "Could not find or load zram module"
 }
 
@@ -60,7 +61,7 @@ start() {
     for dev in $swap_devs; do
       [ "$dev" = "/dev/zram${i}" ] \
         && einfo "/dev/zram${i} is already mounted as a swap device" \
-        && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}" \
+        && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}" &> /dev/null \
         && i=$((i + 1)) \
         && continue 2
     done
@@ -78,7 +79,7 @@ start() {
       && continue ; }
 
     [ -n "$backing_dev" ] \
-      && { echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" \
+      && { echo "$backing_dev" > "/sys/block/zram${i}/backing_dev" 2> /dev/null \
       || ewarn "Failed to write zram${i} backing device" ; }
 
     [ -n "$comp_algo" ] \
@@ -86,7 +87,7 @@ start() {
       || ewarn "Invalid compression algorithm chosen, using default. This kernel only support: [ ${supported_algo} ]" ; }
     
     [ -n "$algo_params" ] \
-      && { echo "algo=${comp_algo%%:*} ${algo_params}" > "/sys/block/zram${i}/algorithm_params" \
+      && { echo "algo=${comp_algo%%:*} ${algo_params}" > "/sys/block/zram${i}/algorithm_params" 2> /dev/null \
       || ewarn "Invalid compression algorithm parameters" ; }
 
     case "${size##*[0-9]}" in
@@ -102,14 +103,14 @@ start() {
         ;;
     esac
 
-    echo "${mem_to_alloc}MiB" > "/sys/block/zram${i}/disksize"
+    echo "${mem_to_alloc}MiB" > "/sys/block/zram${i}/disksize" 2> /dev/null
 
     [ -n "$mem_limit" ] \
-      && { echo "$mem_limit" > "/sys/block/zram${i}/mem_limit" \
+      && { echo "$mem_limit" > "/sys/block/zram${i}/mem_limit" 2> /dev/null \
       || ewarn "Invalid value for memory limit, using default" ; }
 
     [ -n "$backing_dev" -a -n "$writeback" ] \
-      && { echo "$writeback" > "/sys/block/zram${i}/writeback" \
+      && { echo "$writeback" > "/sys/block/zram${i}/writeback" 2> /dev/null \
       || ewarn "Failed to set zram${i} writeback" ; }
 
     case "$discard_opt" in
@@ -131,7 +132,7 @@ start() {
     
     { mkswap --uuid clear --label "ZRAM${i}" "/dev/zram${i}" &> /dev/null \
       && swapon "$swapon_discard_opt" --priority "$priority" "/dev/zram${i}" &> /dev/null \
-      && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}" \
+      && ln --symbolic --force "/dev/zram${i}" "/var/run/zram-gen/zram${i}" &> /dev/null \
       && einfo "Successfully created zram swap device: /dev/zram${i}" ; } \
       || eerror "Failed to initialize zram swap device: /dev/zram${i}"
 
@@ -146,8 +147,8 @@ stop() {
     dev_name="${device##*\/}"
     einfo "Removing zram device: /dev/${dev_name}"
     swapoff "/dev/${dev_name}" \
-      && echo 1 > "/sys/block/${dev_name}/reset" \
-      && rm -f "/var/run/zram-gen/${dev_name}" \
+      && _timeout 10 echo 1 > "/sys/block/zram${i}/reset" \
+      && rm -f "/var/run/zram-gen/${dev_name}" &> /dev/null \
       && einfo "Removed zram device: /dev/${dev_name}"
   done
  eend $? "Failed to remove zram device(s)"
@@ -157,7 +158,8 @@ stop_post() {
   if [ -d "/sys/module/zram" ]; then
     _timeout 10 read -r refcnt < /sys/module/zram/refcnt
     if [ $? -eq 0 -a "$RC_CMD" != "restart" -a "$refcnt" -eq 0 ]; then
-      modprobe -r zram && einfo "Zram module unloaded"
+      modprobe -r zram &> /dev/null \
+        && einfo "Zram module unloaded"
       [ $? -eq 0 -a -d "/var/run/zram-gen" ] && rm -rf /var/run/zram-gen
     fi
   fi
