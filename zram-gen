@@ -147,7 +147,7 @@ stop() {
     dev_name="${device##*\/}"
     einfo "Removing zram device: /dev/${dev_name}"
     swapoff "/dev/${dev_name}" \
-      && _timeout 10 echo 1 > "/sys/block/zram${i}/reset" \
+      && _timeout 10 echo 1 > "/sys/block/${dev_name}/reset" \
       && rm -f "/var/run/zram-gen/${dev_name}" &> /dev/null \
       && einfo "Removed zram device: /dev/${dev_name}"
   done
