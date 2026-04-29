@@ -124,7 +124,7 @@ start() {
   if [ "$_error" -eq 0 ]; then
     einfo "Initializing zram device: /dev/${_zram}"
     
-    ! _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
+    _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
       || eerror "Failed to reset zram device, device or resource busy"
 
     [ -n "$zram_backing_dev" ] \
