@@ -83,6 +83,7 @@ start_pre() {
     return 1
   fi
   if _checkswap "$dev_name"; then
+    eerror "zram device with ${RC_SVCNAME} already exists"
     return 1
   fi
   ebegin "Starting zram"
@@ -112,6 +113,12 @@ start() {
   if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
     _zram="zram${_refcnt}"
     if ! [ -b "/dev/${_zram}" ]; then
+      if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
+        _zram="zram${_hot}"
+      else
+        eend 1 "Failed to hot add a zram device"
+      fi
+    else
       if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
         _zram="zram${_hot}"
       else
