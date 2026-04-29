@@ -50,7 +50,7 @@ depend() {
       break
     fi
   done
-  [ -n "$_before" ] && after "$_after"
+  [ -n "$_after" ] && after "$_after"
 }
 
 _timeout() {
