@@ -41,6 +41,16 @@ dev_name="${RC_SVCNAME#*.}"
 depend() {
   need localmount swap
   provide zram
+  _before=""
+  _after=""
+  for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
+    if ! [ "$svc" = "$RC_SVCNAME" ]; then
+      _before="$svc"
+    else
+      break
+    fi
+  done
+  [ -n "$_before" ] && before "$_before"
 }
 
 _timeout() {
@@ -84,7 +94,7 @@ start_pre() {
     return 1
   fi
   if [ "$RC_CMD" = "start" ] && _checkswap "$dev_name"; then
-    eerror "zram device with ${RC_SVCNAME} already exists"
+    eerror "zram device with name ${RC_SVCNAME} already exists"
     return 1
   fi
   ebegin "Starting zram"
