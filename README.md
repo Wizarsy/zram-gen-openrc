@@ -1,8 +1,8 @@
-# Zram-gen
+# Zram-openrc
 
 ## About
 
-A simple script to manage swap devices in zram using open-rc.
+Init script for zram management with OpenRC.
 
 ## Usage
 
