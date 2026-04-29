@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/sbin/openrc-run
+
+# shellcheck shell=sh
 
 # zram-openrc - simple script to manage swap devices in zram using openrc.
 #
@@ -52,7 +54,7 @@ _timeout() {
   return 1
 }
 
-_checkswap() {
+_getswap() {
   _dev="$1"
   _return=""
   for swap_dev in $(swapon --show=label,name --raw --noheadings); do
@@ -63,18 +65,21 @@ _checkswap() {
   echo "$_return"
 }
 
-# _checkswap() {
-#   _dev="$1"
-#   for swap_dev in $(swapon --show=name --raw --noheadings); do
-#     [ "$_dev" = "$swap_dev" ] && return 0
-#   done
-#   return 1
-# }
+_checkswap() {
+  _dev="$1"
+  for swap_dev in $(swapon --show=label --raw --noheadings); do
+    [ "$_dev" = "$swap_dev" ] && return 0
+  done
+  return 1
+}
 
 start_pre() {
   if [ "$dev_name" = "$RC_SVCNAME" ]; then
     eerror "${RC_SVCNAME} cannot be started directly. You must create" 
     eerror "symbolic links to it for the zram devices you want to start"
+    return 1
+  fi
+  if _checkswap "$dev_name"; then
     return 1
   fi
   ebegin "Starting zram"
@@ -91,10 +96,6 @@ start_pre() {
 }
 
 start() {
-  # size="" comp_algo="" algo_params=""
-  # mem_limit="" priority="" discard_opt="" backing_dev=""
-  #  mem_to_alloc="" i=0
-
   _hot=""
   _refcnt=0
   _error=0
@@ -102,9 +103,8 @@ start() {
   _mem_total=0
   _swapon_discard_opt=""
 
-
-  while read -r mem_header mem_size _; do [ "$mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
-  _mem_total="$((mem_size / 1024))"
+  while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
+  _mem_total="$((_mem_size / 1024))"
 
   if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
     if [ "$_refcnt" -eq 0 ]; then
@@ -139,18 +139,18 @@ start() {
 
     case "${zram_size##*[0-9]}" in
       %)
-        _mem_to_alloc="$((${zram_size%\%} * _mem_total / 100))"
+        _mem_to_alloc="$((${zram_size%\%} * _mem_total / 100))MiB"
         ;;
       [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
-        _mem_to_alloc=$zram_size
+        _mem_to_alloc="$zram_size"
         ;;
       *)
         ewarn "Invalid value for size, using default"
-        _mem_to_alloc="$((25 * _mem_total / 100))"
+        _mem_to_alloc="$((25 * _mem_total / 100))MiB"
         ;;
     esac
 
-    echo "${_mem_to_alloc}MiB" > "/sys/block/${_zram}/disksize" 2> /dev/null
+    echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
 
     [ -n "$zram_mem_limit" ] \
       && { echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null \
@@ -182,7 +182,7 @@ start() {
       && ewarn "Invalid swap priority, using default." \
       && zram_priority=32767
     
-    { mkswap --uuid clear --label "${dev_name}" "/dev/${_zram}" > /dev/null 2>&1 \
+    { mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
       && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
       && ln --symbolic --force "/dev/${_zram}" "/var/run/zram/${_zram}" > /dev/null 2>&1 \
       && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
@@ -192,20 +192,16 @@ start() {
 }
 
 stop() {
-  # for device in /var/run/zram/*; do
-  #   ! [ -b "$device" ] && continue
-  #   dev_name="${device##*\/}"
-    einfo "Removing zram device: ${dev_name}"
-    # rm -f "/var/run/zram/${dev_name}" > /dev/null 2>&1
-    _swap="$(_checkswap "$dev_name")"
-    if [ -n "$_swap" ]; then
-      _dev="${_swap#* }"
-      swapoff -L "$dev_name" > /dev/null 2>&1 \
-      && _timeout 10 echo 1 > "/sys/block/${_dev##*/}/reset" \
-      && _timeout 10 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
-      && einfo "Removed zram device: ${dev_name}"
-    fi
-  # done
+  einfo "Removing zram device: ${dev_name}"
+  _swap="$(_getswap "$dev_name")"
+  if [ -n "$_swap" ]; then
+    _dev="${_swap#* }"
+    echo "$_dev"
+    swapoff -L "$dev_name" > /dev/null 2>&1 \
+    && _timeout 10 echo 1 > "/sys/block/${_dev##*/}/reset" \
+    && _timeout 10 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
+    && einfo "Removed zram device: ${dev_name}"
+  fi
  eend $? "Failed to remove zram device(s)"
 }
 
