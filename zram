@@ -45,12 +45,12 @@ depend() {
   _after=""
   for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
     if ! [ "$svc" = "$RC_SVCNAME" ]; then
-      _before="$svc"
+      _after="$svc"
     else
       break
     fi
   done
-  [ -n "$_before" ] && before "$_before"
+  [ -n "$_before" ] && after "$_after"
 }
 
 _timeout() {
