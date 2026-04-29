@@ -184,7 +184,6 @@ start() {
     
     { mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
       && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
-      && ln --symbolic --force "/dev/${_zram}" "/var/run/zram/${_zram}" > /dev/null 2>&1 \
       && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
       || eerror "Failed to initialize zram swap device: /dev/${_zram}"
     fi
