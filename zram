@@ -43,12 +43,12 @@ depend() {
 }
 
 _timeout() {
-  _t="$(($1 * 10))" _i=0 
+  _t="$1" _i=0 
   shift
   while [ "$_i" -lt "$_t" ]; do
     "$@" 2> /dev/null && return 0
     i="$((i + 1))"
-    sleep 0.1
+    sleep 1
   done
   eerror "Timeout reached, device or resource busy."
   return 1
@@ -58,13 +58,13 @@ _getswap() {
   _dev="$1"
   _return=""
   _ifs="$IFS"
-  # IFS="$(printf '\n')"
-  for swap_dev in $(IFS="$(printf '\n')" swapon --show=label,name --raw --noheadings); do
+  IFS="$(printf '\n')"
+  for swap_dev in $(swapon --show=label,name --raw --noheadings); do
     if [ "$_dev" = "${swap_dev% *}" ]; then
       _return="$swap_dev"
     fi
   done
-  # IFS="$_ifs"
+  IFS="$_ifs"
   echo "$_return"
 }
 
@@ -99,6 +99,7 @@ start_pre() {
 }
 
 start() {
+  _zram=""
   _hot=""
   _refcnt=0
   _error=0
@@ -110,24 +111,22 @@ start() {
   _mem_total="$((_mem_size / 1024))"
 
   if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
-    if [ "$_refcnt" -eq 0 ]; then
-      _zram="zram0"
-    elif _timeout 10 read -r _hot < /sys/class/zram-control/hot_add; then
-      _zram="zram${_hot}"
-    else
-      eerror "Failed to hot add a zram device"
-      _error=1
-    fi
-    if [ -b "/dev/${_zram}" ]; then
-      einfo "Initializing zram device: /dev/${_zram}"
-      if ! _timeout 10 echo 1 > "/sys/block/${_zram}/reset"; then
-        eerror "Failed to reset zram device, device or resource busy"
-        _error=1
+    _zram="zram${_refcnt}"
+    if ! [ -b "/dev/${_zram}" ]; then
+      if _timeout 10 read -r _hot < /sys/class/zram-control/hot_add; then
+        _zram="zram${_hot}"
+      else
+        eerror "Failed to hot add a zram device"
       fi
     fi
+    _error=$?
   fi
-
   if [ "$_error" -eq 0 ]; then
+    einfo "Initializing zram device: /dev/${_zram}"
+    
+    ! _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
+      || eerror "Failed to reset zram device, device or resource busy"
+
     [ -n "$zram_backing_dev" ] \
       && { echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null \
       || ewarn "Failed to write ${_zram} backing device"; }
@@ -163,10 +162,11 @@ start() {
       && { echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null \
       || ewarn "Failed to set ${_zram} writeback"; }
 
-    [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] && [ -n "$zram_writeback_limit" ] \
-      && { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
-      && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null \
-      || ewarn "Failed to write ${_zram} writeback limit"; }
+    if [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] && [ -n "$zram_writeback_limit" ]; then
+      { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
+      && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; } \
+      || ewarn "Failed to write ${_zram} writeback limit"
+    fi
 
     case "$zram_discard_opt" in
       both)
@@ -189,7 +189,7 @@ start() {
       && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
       && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
       || eerror "Failed to initialize zram swap device: /dev/${_zram}"
-    fi
+  fi
   eend $? "Failed to create zram swap device"
 }
 
