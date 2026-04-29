@@ -41,15 +41,18 @@ dev_name="${RC_SVCNAME#*.}"
 depend() {
   need localmount swap
   # provide zram
-  _before=""
   _after=""
-  for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
+  _runlevel="$(rc-status -r)"
+  for svc in "${RC_PREFIX%/}"/etc/runlevels/"${_runlevel}"/zram*; do
     if ! [ "$svc" = "$RC_SVCNAME" ]; then
       _after="$svc"
     else
       break
     fi
   done
+  # for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
+    
+  # done
   [ -n "$_after" ] && after "$_after"
 }
 
