@@ -109,10 +109,10 @@ start() {
   while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   _mem_total="$((_mem_size / 1024))"
 
-  if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
+  if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
     _zram="zram${_refcnt}"
     if ! [ -b "/dev/${_zram}" ]; then
-      if _timeout 10 read -r _hot < /sys/class/zram-control/hot_add; then
+      if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
         _zram="zram${_hot}"
       else
         eend 1 "Failed to hot add a zram device"
@@ -122,7 +122,7 @@ start() {
   
   einfo "Initializing zram device: /dev/${_zram}"
   
-  _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
+  _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
     || eend 1 "Failed to reset zram device, device or resource busy"
 
   [ -n "$zram_backing_dev" ] \
@@ -185,9 +185,8 @@ start() {
   
   { mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
     && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
-    && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
-    || eend 1 "Failed to initialize zram swap device: /dev/${_zram}"
-  # eend $? "Failed to create zram swap device"
+    && einfo "Successfully created zram swap device: ${dev_name}"; } \
+    || eend 1 "Failed to create zram swap device: ${dev_name}"
 }
 
 stop() {
@@ -196,8 +195,8 @@ stop() {
   if [ -n "$_swap" ]; then
     _dev="${_swap#* }"
     swapoff -L "$dev_name" > /dev/null 2>&1 \
-    && _timeout 10 echo 1 > "/sys/block/${_dev##*/}/reset" \
-    && _timeout 10 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
+    && _timeout 5 echo 1 > "/sys/block/${_dev##*/}/reset" \
+    && _timeout 5 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram device: ${dev_name}"
   fi
  eend $? "Failed to remove zram device(s)"
@@ -207,7 +206,7 @@ stop_post() {
   [ "$RC_CMD" = "restart" ] && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
-    if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
+    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       if [ "$_refcnt" -eq 0 ]; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
         || { modprobe -r zram > /dev/null 2>&1 \
