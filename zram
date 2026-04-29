@@ -57,11 +57,14 @@ _timeout() {
 _getswap() {
   _dev="$1"
   _return=""
+  _ifs="$IFS"
+  IFS="$(printf '\n')"
   for swap_dev in $(swapon --show=label,name --raw --noheadings); do
     if [ "$_dev" = "${swap_dev% *}" ]; then
       _return="$swap_dev"
-    fi 
+    fi
   done
+  IFS="$_ifs"
   echo "$_return"
 }
 
@@ -195,7 +198,6 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _dev="${_swap#* }"
-    echo "$_dev"
     swapoff -L "$dev_name" > /dev/null 2>&1 \
     && _timeout 10 echo 1 > "/sys/block/${_dev##*/}/reset" \
     && _timeout 10 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
