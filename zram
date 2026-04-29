@@ -40,7 +40,7 @@ dev_name="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount swap
-  provide zram
+  # provide zram
   _before=""
   _after=""
   for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
