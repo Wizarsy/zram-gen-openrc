@@ -40,6 +40,7 @@ dev_name="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount swap
+  provide zram
 }
 
 _timeout() {
@@ -91,8 +92,7 @@ start_pre() {
   if ! [ -d "/sys/module/zram" ]; then
     ! modprobe --dry-run zram > /dev/null 2>&1 \
     || { modprobe zram > /dev/null 2>&1 \
-        && einfo "Zram module loaded" \
-        && sleep 0.1; }
+        && einfo "Zram module loaded"; }
   else
     einfo "Zram module already loaded"
   fi
