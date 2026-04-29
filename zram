@@ -40,15 +40,14 @@ dev_name="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount swap
-  provide zram
   _after=""
   _runlevel="$(rc-status -r)"
+  LC_COLLATE=C
   for svc in "${RC_PREFIX%/}"/etc/runlevels/"${_runlevel}"/zram*; do
-    if ! [ "${svc##*/}" = "$RC_SVCNAME" ]; then
-      _after="${svc##*/}"
-    else
+    if [ "${svc##*/}" = "$RC_SVCNAME" ]; then
       break
     fi
+    _after="${svc##*/}"
   done
   [ -n "$_after" ] && after "$_after"
 }
