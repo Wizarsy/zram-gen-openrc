@@ -67,14 +67,21 @@ _timeout() {
 _getswap() {
   _dev="$1"
   _return=""
-  _ifs="$IFS"
-  IFS="$(printf '\n')"
-  for swap_dev in $(swapon --show=label,name --raw --noheadings); do
+  # _ifs="$IFS"
+  # IFS="$(printf "\u0a")"
+  while read -r swap_dev; do
     if [ "$_dev" = "${swap_dev% *}" ]; then
       _return="$swap_dev"
     fi
-  done
-  IFS=$_ifs
+  done << EOF 
+  $(swapon --show=label,name --raw --noheadings)
+EOF
+  # for swap_dev in $(swapon --show=label,name --raw --noheadings); do
+  #   if [ "$_dev" = "${swap_dev% *}" ]; then
+  #     _return="$swap_dev"
+  #   fi
+  # done
+  # IFS=$_ifs
   echo "$_return"
 }
 
