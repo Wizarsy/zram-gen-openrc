@@ -1,0 +1,225 @@
+#!/bin/sh
+
+# zram-openrc - simple script to manage swap devices in zram using openrc.
+#
+# Copyright (c) 2026 Wizarsy
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+description="Manages zram swap devices"
+
+dev_name="${RC_SVCNAME#*.}"
+
+: "${zram_size:=25%}"
+: "${zram_discard_opt:=both}"
+: "${zram_priority:=32767}"
+: "${zram_writeback:=idle}"
+: "${zram_writeback_limit:=""}"
+: "${zram_mem_limit:=""}"
+: "${zram_comp_algo:=""}"
+: "${zram_algo_params:=""}"
+: "${zram_backing_dev:=""}"
+
+depend() {
+  need localmount swap
+}
+
+_timeout() {
+  _t="$(($1 * 10))" _i=0 
+  shift
+  while [ "$_i" -lt "$_t" ]; do
+    "$@" 2> /dev/null && return 0
+    i="$((i + 1))"
+    sleep 0.1
+  done
+  eerror "Timeout reached, device or resource busy."
+  return 1
+}
+
+_checkswap() {
+  _dev="$1"
+  _return=""
+  for swap_dev in $(swapon --show=label,name --raw --noheadings); do
+    if [ "$_dev" = "${swap_dev% *}" ]; then
+      _return="$swap_dev"
+    fi 
+  done
+  echo "$_return"
+}
+
+# _checkswap() {
+#   _dev="$1"
+#   for swap_dev in $(swapon --show=name --raw --noheadings); do
+#     [ "$_dev" = "$swap_dev" ] && return 0
+#   done
+#   return 1
+# }
+
+start_pre() {
+  if [ "$dev_name" = "$RC_SVCNAME" ]; then
+    eerror "${RC_SVCNAME} cannot be started directly. You must create" 
+    eerror "symbolic links to it for the zram devices you want to start"
+    return 1
+  fi
+  ebegin "Starting zram"
+  einfo "Checking the status of the zram module"
+  if ! [ -d "/sys/module/zram" ]; then
+    ! modprobe --dry-run zram > /dev/null 2>&1 \
+    || { modprobe zram > /dev/null 2>&1 \
+        && einfo "Zram module loaded" \
+        && sleep 0.1; }
+  else
+    einfo "Zram module already loaded"
+  fi
+  eend $? "Could not find or load zram module"
+}
+
+start() {
+  # size="" comp_algo="" algo_params=""
+  # mem_limit="" priority="" discard_opt="" backing_dev=""
+  #  mem_to_alloc="" i=0
+
+  _hot=""
+  _refcnt=0
+  _error=0
+  _mem_to_alloc=""
+  _mem_total=0
+  _swapon_discard_opt=""
+
+
+  while read -r mem_header mem_size _; do [ "$mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
+  _mem_total="$((mem_size / 1024))"
+
+  if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
+    if [ "$_refcnt" -eq 0 ]; then
+      _zram="zram0"
+    elif _timeout 10 read -r _hot < /sys/class/zram-control/hot_add; then
+      _zram="zram${_hot}"
+    else
+      eerror "Failed to hot add a zram device"
+      _error=1
+    fi
+    if [ -b "/dev/${_zram}" ]; then
+      einfo "Initializing zram device: /dev/${_zram}"
+      if ! _timeout 10 echo 1 > "/sys/block/${_zram}/reset"; then
+        eerror "Failed to reset zram device, device or resource busy"
+        _error=1
+      fi
+    fi
+  fi
+
+  if [ "$_error" -eq 0 ]; then
+    [ -n "$zram_backing_dev" ] \
+      && { echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null \
+      || ewarn "Failed to write ${_zram} backing device"; }
+
+    [ -n "$zram_comp_algo" ] \
+      && { echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null \
+      || ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."; }
+    
+    [ -n "$zram_algo_params" ] \
+      && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
+      || ewarn "Invalid compression algorithm parameters"; }
+
+    case "${zram_size##*[0-9]}" in
+      %)
+        _mem_to_alloc="$((${zram_size%\%} * _mem_total / 100))"
+        ;;
+      [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
+        _mem_to_alloc=$zram_size
+        ;;
+      *)
+        ewarn "Invalid value for size, using default"
+        _mem_to_alloc="$((25 * _mem_total / 100))"
+        ;;
+    esac
+
+    echo "${_mem_to_alloc}MiB" > "/sys/block/${_zram}/disksize" 2> /dev/null
+
+    [ -n "$zram_mem_limit" ] \
+      && { echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null \
+      || ewarn "Invalid value for memory limit, using default"; }
+
+    [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] \
+      && { echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null \
+      || ewarn "Failed to set ${_zram} writeback"; }
+
+    [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] && [ -n "$zram_writeback_limit" ] \
+      && { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
+      && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null \
+      || ewarn "Failed to write ${_zram} writeback limit"; }
+
+    case "$zram_discard_opt" in
+      both)
+        _swapon_discard_opt="--discard"
+        ;;
+      once|pages)
+        _swapon_discard_opt="--discard=${zram_discard_opt}"
+        ;;
+      *)
+        ewarn "Invalid value for discard, using default"
+        _swapon_discard_opt="--discard"
+        ;;
+    esac
+    
+    [ "$zram_priority" -gt 32767 ] \
+      && ewarn "Invalid swap priority, using default." \
+      && zram_priority=32767
+    
+    { mkswap --uuid clear --label "${dev_name}" "/dev/${_zram}" > /dev/null 2>&1 \
+      && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
+      && ln --symbolic --force "/dev/${_zram}" "/var/run/zram/${_zram}" > /dev/null 2>&1 \
+      && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
+      || eerror "Failed to initialize zram swap device: /dev/${_zram}"
+    fi
+  eend $? "Failed to create zram swap device"
+}
+
+stop() {
+  # for device in /var/run/zram/*; do
+  #   ! [ -b "$device" ] && continue
+  #   dev_name="${device##*\/}"
+    einfo "Removing zram device: ${dev_name}"
+    # rm -f "/var/run/zram/${dev_name}" > /dev/null 2>&1
+    _swap="$(_checkswap "$dev_name")"
+    if [ -n "$_swap" ]; then
+      _dev="${_swap#* }"
+      swapoff -L "$dev_name" > /dev/null 2>&1 \
+      && _timeout 10 echo 1 > "/sys/block/${_dev##*/}/reset" \
+      && _timeout 10 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
+      && einfo "Removed zram device: ${dev_name}"
+    fi
+  # done
+ eend $? "Failed to remove zram device(s)"
+}
+
+stop_post() {
+  [ "$RC_CMD" = "restart" ] && return 0
+  if [ -d "/sys/module/zram" ]; then
+    _refcnt=0
+    if _timeout 10 read -r _refcnt < /sys/module/zram/refcnt; then
+      if [ "$_refcnt" -eq 0 ]; then
+        ! modprobe -r --dry-run zram > /dev/null 2>&1 \
+        || { modprobe -r zram > /dev/null 2>&1 \
+            && einfo "Zram module unloaded"; }
+      fi
+    fi
+  fi
+  eend $? "Failed to remove zram module"
+}
