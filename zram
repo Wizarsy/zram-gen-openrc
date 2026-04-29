@@ -102,7 +102,6 @@ start() {
   _zram=""
   _hot=""
   _refcnt=0
-  _error=0
   _mem_to_alloc=""
   _mem_total=0
   _swapon_discard_opt=""
@@ -116,81 +115,79 @@ start() {
       if _timeout 10 read -r _hot < /sys/class/zram-control/hot_add; then
         _zram="zram${_hot}"
       else
-        eerror "Failed to hot add a zram device"
+        eend 1 "Failed to hot add a zram device"
       fi
     fi
-    _error=$?
   fi
-  if [ "$_error" -eq 0 ]; then
-    einfo "Initializing zram device: /dev/${_zram}"
-    
-    _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
-      || eerror "Failed to reset zram device, device or resource busy"
+  
+  einfo "Initializing zram device: /dev/${_zram}"
+  
+  _timeout 10 echo 1 > "/sys/block/${_zram}/reset" \
+    || eend 1 "Failed to reset zram device, device or resource busy"
 
-    [ -n "$zram_backing_dev" ] \
-      && { echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null \
-      || ewarn "Failed to write ${_zram} backing device"; }
+  [ -n "$zram_backing_dev" ] \
+    && { echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null \
+    || ewarn "Failed to write ${_zram} backing device"; }
 
-    [ -n "$zram_comp_algo" ] \
-      && { echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null \
-      || ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."; }
-    
-    [ -n "$zram_algo_params" ] \
-      && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
-      || ewarn "Invalid compression algorithm parameters"; }
+  [ -n "$zram_comp_algo" ] \
+    && { echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null \
+    || ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."; }
+  
+  [ -n "$zram_algo_params" ] \
+    && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
+    || ewarn "Invalid compression algorithm parameters"; }
 
-    case "${zram_size##*[0-9]}" in
-      %)
-        _mem_to_alloc="$((${zram_size%\%} * _mem_total / 100))MiB"
-        ;;
-      [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
-        _mem_to_alloc="$zram_size"
-        ;;
-      *)
-        ewarn "Invalid value for size, using default"
-        _mem_to_alloc="$((25 * _mem_total / 100))MiB"
-        ;;
-    esac
+  case "${zram_size##*[0-9]}" in
+    %)
+      _mem_to_alloc="$((${zram_size%\%} * _mem_total / 100))MiB"
+      ;;
+    [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
+      _mem_to_alloc="$zram_size"
+      ;;
+    *)
+      ewarn "Invalid value for size, using default"
+      _mem_to_alloc="$((25 * _mem_total / 100))MiB"
+      ;;
+  esac
 
-    echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
+  echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
 
-    [ -n "$zram_mem_limit" ] \
-      && { echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null \
-      || ewarn "Invalid value for memory limit, using default"; }
+  [ -n "$zram_mem_limit" ] \
+    && { echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null \
+    || ewarn "Invalid value for memory limit, using default"; }
 
-    [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] \
-      && { echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null \
-      || ewarn "Failed to set ${_zram} writeback"; }
+  [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] \
+    && { echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null \
+    || ewarn "Failed to set ${_zram} writeback"; }
 
-    if [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] && [ -n "$zram_writeback_limit" ]; then
-      { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
-      && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; } \
-      || ewarn "Failed to write ${_zram} writeback limit"
-    fi
-
-    case "$zram_discard_opt" in
-      both)
-        _swapon_discard_opt="--discard"
-        ;;
-      once|pages)
-        _swapon_discard_opt="--discard=${zram_discard_opt}"
-        ;;
-      *)
-        ewarn "Invalid value for discard, using default"
-        _swapon_discard_opt="--discard"
-        ;;
-    esac
-    
-    [ "$zram_priority" -gt 32767 ] \
-      && ewarn "Invalid swap priority, using default." \
-      && zram_priority=32767
-    
-    { mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
-      && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
-      && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
-      || eerror "Failed to initialize zram swap device: /dev/${_zram}"
+  if [ -n "$zram_backing_dev" ] && [ -n "$zram_writeback" ] && [ -n "$zram_writeback_limit" ]; then
+    { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
+    && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; } \
+    || ewarn "Failed to write ${_zram} writeback limit"
   fi
-  eend $? "Failed to create zram swap device"
+
+  case "$zram_discard_opt" in
+    both)
+      _swapon_discard_opt="--discard"
+      ;;
+    once|pages)
+      _swapon_discard_opt="--discard=${zram_discard_opt}"
+      ;;
+    *)
+      ewarn "Invalid value for discard, using default"
+      _swapon_discard_opt="--discard"
+      ;;
+  esac
+  
+  [ "$zram_priority" -gt 32767 ] \
+    && ewarn "Invalid swap priority, using default." \
+    && zram_priority=32767
+  
+  { mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
+    && swapon "$_swapon_discard_opt" --priority "$zram_priority" "/dev/${_zram}" > /dev/null 2>&1 \
+    && einfo "Successfully created zram swap device: /dev/${_zram}"; } \
+    || eend 1 "Failed to initialize zram swap device: /dev/${_zram}"
+  # eend $? "Failed to create zram swap device"
 }
 
 stop() {
