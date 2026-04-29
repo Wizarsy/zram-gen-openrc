@@ -82,7 +82,7 @@ start_pre() {
     eerror "symbolic links to it for the zram devices you want to start"
     return 1
   fi
-  if _checkswap "$dev_name"; then
+  if [ "$RC_CMD" = "start" ] && _checkswap "$dev_name"; then
     eerror "zram device with ${RC_SVCNAME} already exists"
     return 1
   fi
