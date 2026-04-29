@@ -43,12 +43,12 @@ depend() {
 }
 
 _timeout() {
-  _t="$1" _i=0 
+  _t="$(($1 * 10))" _i=0 
   shift
   while [ "$_i" -lt "$_t" ]; do
     "$@" 2> /dev/null && return 0
     i="$((i + 1))"
-    sleep 1
+    sleep 0.1
   done
   eerror "Timeout reached, device or resource busy."
   return 1
@@ -216,7 +216,7 @@ stop_post() {
     if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       if [ "$_refcnt" -eq 0 ]; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
-        || { modprobe -r zram > /dev/null 2>&1 \
+        || { modprobe -w 5 -r zram > /dev/null 2>&1 \
             && einfo "Zram module unloaded"; }
       fi
     fi
