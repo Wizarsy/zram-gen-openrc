@@ -40,19 +40,16 @@ dev_name="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount swap
-  # provide zram
+  provide zram
   _after=""
   _runlevel="$(rc-status -r)"
   for svc in "${RC_PREFIX%/}"/etc/runlevels/"${_runlevel}"/zram*; do
-    if ! [ "$svc" = "$RC_SVCNAME" ]; then
-      _after="$svc"
+    if ! [ "${svc##*/}" = "$RC_SVCNAME" ]; then
+      _after="${svc##*/}"
     else
       break
     fi
   done
-  # for svc in $(rc-status -C | awk '/zram/{print $1}' | sort); do
-    
-  # done
   [ -n "$_after" ] && after "$_after"
 }
 
@@ -126,12 +123,6 @@ start() {
   if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
     _zram="zram${_refcnt}"
     if ! [ -b "/dev/${_zram}" ]; then
-      if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
-        _zram="zram${_hot}"
-      else
-        eend 1 "Failed to hot add a zram device"
-      fi
-    else
       if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
         _zram="zram${_hot}"
       else
