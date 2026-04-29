@@ -74,7 +74,7 @@ _getswap() {
       _return="$swap_dev"
     fi
   done
-  IFS="$_ifs"
+  IFS=$_ifs
   echo "$_return"
 }
 
@@ -219,7 +219,7 @@ stop_post() {
     if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       if [ "$_refcnt" -eq 0 ]; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
-        || { modprobe -w 5 -r zram > /dev/null 2>&1 \
+        || { modprobe -r zram > /dev/null 2>&1 \
             && einfo "Zram module unloaded"; }
       fi
     fi
