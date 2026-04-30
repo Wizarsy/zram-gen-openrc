@@ -197,27 +197,6 @@ start() {
 
   if [ -n "$zram_backing_dev" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
-      echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
-      if [ -n "$zram_writeback" ]; then
-        if echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null; then
-          if [ -n "$zram_writeback_limit" ]; then
-            { echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
-            && echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; } \
-            || ewarn "Failed to write ${_zram} writeback limit"
-          fi
-        else 
-          ewarn "Failed to set ${_zram} writeback"
-        fi
-      fi
-    else
-      ewarn "Failed to write ${_zram} backing device"
-    fi
-  else
-    echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
-  fi
-
-  if [ -n "$zram_backing_dev" ]; then
-    if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
       if ! [ -n "$zram_comp_algo" ] || ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
         ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
       fi
