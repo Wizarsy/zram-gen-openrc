@@ -1,7 +1,5 @@
 #!/sbin/openrc-run
 
-# shellcheck shell=sh
-
 # zram-openrc - simple script to manage devices in zram using openrc.
 #
 # Copyright (c) 2026 Wizarsy
@@ -24,17 +22,20 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# shellcheck shell=sh
+
 # zram doc: https://docs.kernel.org/admin-guide/blockdev/zram.html
 
-# 1) backing_dev
-# 2) comp_algo
-# 3) disksize
-# 4) witreback
-# *) witreback_limit
-# *) idle
-# *) algo_params
-# *) mem_limit
-
+: '
+1) backing_dev
+2) comp_algo
+3) disksize
+4) witreback
+*) witreback_limit
+*) idle
+*) algo_params
+*) mem_limit
+'
 description="Manages zram devices"
 
 dev_name="${RC_SVCNAME#*.}"
@@ -62,15 +63,15 @@ LC_COLLATE=C
 
 depend() {
   need localmount swap
-  _after=""
-  _runlevel="$(rc-status -r)"
-  for svc in "${RC_PREFIX%/}"/etc/runlevels/"${_runlevel}"/zram*; do
-    if [ "${svc##*/}" = "$RC_SVCNAME" ]; then
-      break
-    fi
-    _after="${svc##*/}"
-  done
-  [ -n "$_after" ] && after "$_after"
+  # _after=""
+  # _runlevel="$(rc-status -r)"
+  # for svc in "${RC_PREFIX%/}"/etc/runlevels/"${_runlevel}"/zram*; do
+  #   if [ "${svc##*/}" = "$RC_SVCNAME" ]; then
+  #     break
+  #   fi
+  #   _after="${svc##*/}"
+  # done
+  # [ -n "$_after" ] && after "$_after"
 }
 
 _timeout() {
@@ -82,14 +83,13 @@ _timeout() {
     sleep 0.1
   done
   eerror "Timeout reached, device or resource busy."
-  return 1
 }
 
 _getswap() {
-  _dev="$1"
+  _label="$1"
   _return=""
   while read -r _swap_dev; do
-    if [ "$_dev" = "${_swap_dev% *}" ]; then
+    if [ "$_label" = "${_swap_dev% *}" ]; then
       _return="$_swap_dev"
       break
     fi
@@ -100,28 +100,44 @@ EOF
 }
 
 _checkswap() {
-  _dev="$1"
+  _label="$1"
   for _swap_dev in $(swapon --show=label --raw --noheadings); do
-    [ "$_dev" = "$_swap_dev" ] && return 0
+    [ "$_label" = "$_swap_dev" ] && return 0
   done
   return 1
 }
 
 _mkswap() {
-  _dev="$1"
-  _op="$2"
-  _pri="$3"
-  [ "$_pri" -gt 32767 ] \
-    && ewarn "Invalid swap priority, using default." \
-    && _pri=32767
-  mkswap --uuid clear --label "$dev_name" "/dev/${_dev}" > /dev/null 2>&1 \
-    && swapon "$_op" --priority "$_pri" "/dev/${_dev}" > /dev/null 2>&1 \
+  _zram="$1"
+  _op=""
+  _pri=""
+  case "$zram_swap_discard" in
+    both)
+      _op="--discard"
+      ;;
+    once|pages)
+      _op="--discard=${zram_swap_discard}"
+      ;;
+    *)
+      ewarn "Invalid value for discard, using default"
+      _op="--discard"
+      ;;
+  esac
+  if [ "$zram_swap_priority" -gt 32767 ]; then
+    ewarn "Invalid swap priority, using default."
+    _pri=32767
+  fi
+  mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
+    && swapon "$_op" --priority "$_pri" "/dev/${_zram}" > /dev/null 2>&1 \
     && einfo "Successfully created zram swap device: ${dev_name}"
-  return 0
 }
 
 _rmswap() {
-  :
+  _zram="$1"
+  swapoff -L "$dev_name" > /dev/null 2>&1 \
+    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
+    && einfo "Removed zram device: ${dev_name}"
 }
 
 _mkstorage() {
@@ -139,29 +155,26 @@ start_pre() {
     return 1
   fi
   if [ "$RC_CMD" = "start" ] && _checkswap "$dev_name"; then
-    eend 1 "zram device with name ${RC_SVCNAME} already exists"
+    eend 1 "zram device with label ${dev_name} already exists"
   fi
-  if ! [ -d "/sys/module/zram" ]; then
+  if ! [ -d "/sys/module/zram" ] && [ ! -e /run/zram.lock ]; then
+    touch /run/zram.lock
     ebegin "Starting zram"
-    einfo "Checking the status of the zram module"
     ! modprobe --dry-run zram > /dev/null 2>&1 \
     || { modprobe zram > /dev/null 2>&1 \
         && einfo "Zram module loaded"; }
+    rm /run/zram.lock
   fi
   eend $? "Could not find or load zram module"
 }
 
 start() {
   _zram=""
-  _hot=""
-  _refcnt=0
   _mem_to_alloc=""
+  _hot=0
+  _refcnt=0
   _mem_total=0
-  _swapon_discard_opt=""
 
-  while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
-  _mem_total="$((_mem_size / 1024))"
-  
   for _zram_dev in /sys/block/zram*; do
     read -r _state < "${_zram_dev}/initstate"
     if [ "$_state" -eq 0 ]; then
@@ -176,6 +189,9 @@ start() {
       eend 1 "Failed to hot add a zram device"
     fi
   fi
+  touch "/run/${_zram}"
+  while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
+  _mem_total="$((_mem_size / 1024))"
 
   case "${zram_size##*[0-9]}" in
     %)
@@ -193,7 +209,7 @@ start() {
   einfo "Initializing zram device: /dev/${_zram}"
   
   _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    || eend 1 "Failed to reset zram device, device or resource busy"
+    || eend 1 "Failed to reset zram device: device or resource busy"
 
   if [ -n "$zram_backing_dev" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
@@ -233,38 +249,28 @@ start() {
 
   case "$zram_type" in
     swap) 
-      case "$zram_swap_discard" in
-        both)
-          _swapon_discard="--discard"
-          ;;
-        once|pages)
-          _swapon_discard="--discard=${zram_swap_discard}"
-          ;;
-        *)
-          ewarn "Invalid value for discard, using default"
-          _swapon_discard="--discard"
-          ;;
-      esac
-      _mkswap "$_zram" "$_swapon_discard" "$zram_swap_priority" \
+      _mkswap "$_zram" \
         || eend 1 "Failed to create zram swap device: ${dev_name}"
       ;;
     ext4)
-      :
+      _mkstorage "$_zram" \
+        || eend 1 "Failed to create zram storage device: ${dev_name}"
       ;;
     *) 
       eend 1 "Invalid zram type"
       ;;
   esac
+  # einfo "${zram_type}: algo=${zram_comp_algo}"
 }
 
 stop() {
   einfo "Removing zram device: ${dev_name}"
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
-    _dev="${_swap#* }"
+    _zram="${_swap#* }"
     swapoff -L "$dev_name" > /dev/null 2>&1 \
-    && _timeout 5 echo 1 > "/sys/block/${_dev##*/}/reset" \
-    && _timeout 5 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
+    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram device: ${dev_name}"
   fi
  eend $? "Failed to remove zram device(s)"
