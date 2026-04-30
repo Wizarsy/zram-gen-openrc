@@ -157,7 +157,7 @@ start_pre() {
   if [ "$RC_CMD" = "start" ] && _checkswap "$dev_name"; then
     eend 1 "zram device with label ${dev_name} already exists"
   fi
-  if ! [ -d "/sys/module/zram" ] && [ ! -e /run/zram.lock ]; then
+  if ! [ -e "/run/zram.lock" ] && ! [ -d "/sys/module/zram" ]; then
     touch /run/zram.lock
     ebegin "Starting zram"
     ! modprobe --dry-run zram > /dev/null 2>&1 \
@@ -189,7 +189,7 @@ start() {
       eend 1 "Failed to hot add a zram device"
     fi
   fi
-  touch "/run/${_zram}"
+  touch "/run/${_zram}.lock"
   while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   _mem_total="$((_mem_size / 1024))"
 
