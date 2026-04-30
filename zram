@@ -71,8 +71,8 @@ _getswap() {
   while read -r _swap_dev; do
     if [ "$_dev" = "${_swap_dev% *}" ]; then
       _return="$_swap_dev"
+      break
     fi
-    break
   done << EOF 
   $(swapon --show=label,name --raw --noheadings)
 EOF
