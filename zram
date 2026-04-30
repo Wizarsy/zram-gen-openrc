@@ -224,7 +224,7 @@ stop() {
   if [ -n "$_swap" ]; then
     _dev="${_swap#* }"
     swapoff -L "$dev_name" > /dev/null 2>&1 \
-    && _timeout 5 echo 1 > "${_dev}/reset" \
+    && _timeout 5 echo 1 > "/sys/block/${_dev##*/}/reset" \
     && _timeout 5 echo "${_dev##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram device: ${dev_name}"
   fi
