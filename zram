@@ -54,7 +54,11 @@ LC_COLLATE=C
 
 depend() {
   need localmount
-  after swap zram.*
+  if [ "${RC_CMD}" = "start" ]; then
+    after swap zram.*
+  else
+    after zram.*
+  fi
 }
 
 _timeout() {
@@ -117,12 +121,10 @@ _mkswap() {
 
 _rmswap() {
   _zram="$1"
-  touch "/var/run/${_zram##*/}.lock"
   swapoff -L "$dev_name" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram device: ${dev_name}"
-  rm "/var/run/${_zram##*/}.lock"
 }
 
 _mkstorage() {
@@ -251,10 +253,10 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
-    _timeout 30 ! test -e /var/run/zram.lock
-    touch /var/run/zram.lock
+    # _timeout 30 ! test -e /var/run/zram.lock
+    # touch /var/run/zram.lock
     _rmswap "$_zram"
-    rm /var/run/zram.lock
+    # rm /var/run/zram.lock
   fi
  eend $? "Failed to remove zram device(s)"
 }
