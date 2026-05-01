@@ -53,18 +53,11 @@ LC_COLLATE=C
 
 depend() {
   need localmount
-  _after=""
-  # for _svc in "${RC_PREFIX%/}"/etc/init.d/zram.*; do
-  #   [ "${_svc##*/}" = "$RC_SVCNAME" ] && break
-  #   _after="${_svc##*/}"
-  # done
-  while read -r _svc; do
-    [ "${_svc##*/}" = "$RC_SVCNAME" ] && break
-    _after="${_svc##*/}"
-  done << EOF 
-  $(rc-status | awk '/zram/{print $}/')
-EOF
-  after swap "$_after"
+  if yesno "${RC_REBOOT}" || yesno "${RC_GOINGDOWN}"; then
+    before swap zram.*
+  else
+    after swap zram.*
+  fi
 }
 
 _timeout() {
