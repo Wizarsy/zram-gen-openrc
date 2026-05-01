@@ -170,6 +170,8 @@ start() {
       eend 1 "Failed to hot add a zram device"
     fi
   fi
+
+  touch "/var/run/${_zram}.lock"
   
   while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   _mem_total="$((_mem_size / 1024))"
@@ -249,10 +251,9 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
-    while ! test -e /var/run/zram.lock; do sleep 1; done
-    touch /var/run/zram.lock
+    while find /var/run/zram* -type f > /dev/null 2>&1; do sleep 1; done
     _rmswap "$_zram"
-    rm /var/run/zram.lock
+    rm "/var/run/${_zram##*/}.lock"
   fi
  eend $? "Failed to remove zram device(s)"
 }
