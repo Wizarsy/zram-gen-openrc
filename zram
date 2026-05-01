@@ -53,11 +53,7 @@ LC_COLLATE=C
 
 depend() {
   need localmount
-  if yesno "${RC_REBOOT}" || yesno "${RC_GOINGDOWN}"; then
-    before swap zram.*
-  else
-    after swap zram.*
-  fi
+  after swap zram.*
 }
 
 _timeout() {
@@ -120,10 +116,12 @@ _mkswap() {
 
 _rmswap() {
   _zram="$1"
+  touch "/var/run/${_zram}.lock"
   swapoff -L "$dev_name" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram device: ${dev_name}"
+  rm "/var/run/${_zram}.lock"
 }
 
 _mkstorage() {
@@ -264,7 +262,7 @@ stop_post() {
   [ "$RC_CMD" = "restart" ] && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
-    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
+    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt && _timeout 5 ! test -e /var/run/zram*.lock; then
       if [ "$_refcnt" -eq 0 ]; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
         || { modprobe -r zram > /dev/null 2>&1 \
