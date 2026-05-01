@@ -250,10 +250,11 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
-    swapoff -L "$dev_name" > /dev/null 2>&1 \
-    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
-    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-    && einfo "Removed zram device: ${dev_name}"
+    _rmswap "$_zram"
+    # swapoff -L "$dev_name" > /dev/null 2>&1 \
+    # && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+    # && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
+    # && einfo "Removed zram device: ${dev_name}"
   fi
  eend $? "Failed to remove zram device(s)"
 }
