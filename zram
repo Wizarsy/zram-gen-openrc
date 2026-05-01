@@ -54,8 +54,7 @@ LC_COLLATE=C
 
 depend() {
   need localmount
-  after swap 
-  use zram.*
+  after swap zram.*
 }
 
 _timeout() {
@@ -252,7 +251,10 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
+    _timeout 30 ! test -e /var/run/zram.lock
+    touch /var/run/zram.lock
     _rmswap "$_zram"
+    rm /var/run/zram.lock
   fi
  eend $? "Failed to remove zram device(s)"
 }
