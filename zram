@@ -26,6 +26,7 @@
 
 # shellcheck shell=sh
 
+# shellcheck disable=SC2034
 description="Manages zram devices"
 
 dev_name="${RC_SVCNAME#*.}"
@@ -41,7 +42,7 @@ dev_name="${RC_SVCNAME#*.}"
 : "${zram_swap_discard:=both}"
 
 : "${zram_size:=25%}"
-: "${zram_writeback:=idle}"
+: "${zram_writeback:=incompressible}"
 : "${zram_writeback_limit:=""}"
 : "${zram_mem_limit:=""}"
 : "${zram_backing_dev:=""}"
@@ -53,7 +54,8 @@ LC_COLLATE=C
 
 depend() {
   need localmount
-  after swap zram.*
+  after swap 
+  use zram.*
 }
 
 _timeout() {
@@ -259,7 +261,6 @@ stop_post() {
   [ "$RC_CMD" = "restart" ] && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
-    while test -e /var/run/zram*.lock; do :; done
     if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       if [ "$_refcnt" -eq 0 ]; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
