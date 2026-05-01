@@ -57,7 +57,7 @@ depend() {
   if [ "${RC_CMD}" = "start" ]; then
     after swap zram.*
   else
-    after zram.*
+    before zram.*
   fi
 }
 
