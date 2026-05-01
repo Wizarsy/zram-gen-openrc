@@ -261,9 +261,9 @@ stop_post() {
   [ "$RC_CMD" = "restart" ] && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
+    while find /var/run/zram*.lock -type f > /dev/null 2>&1; do sleep 1; done
     if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       if [ "$_refcnt" -eq 0 ]; then
-        while find /var/run/zram* -type f > /dev/null 2>&1; do sleep 1; done
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
         || { modprobe -r zram > /dev/null 2>&1 \
             && einfo "Zram module unloaded"; }
