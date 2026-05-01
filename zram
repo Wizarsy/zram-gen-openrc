@@ -253,7 +253,7 @@ stop() {
   _swap="$(_getswap "$dev_name")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
-    while ! test -e /var/run/zram.lock; do :; done
+    while ! ewaitfile 10 /var/run/zram.lock; do :; done
     touch /var/run/zram.lock
     _rmswap "$_zram"
     rm /var/run/zram.lock
