@@ -88,28 +88,28 @@ _rmlock() {
 
 _mkswap() {
   _zram="$1"
-  _op=""
-  _pri="$zram_swap_priority"
+  _sop=""
+  if [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
+    ewarn "Invalid swap priority, using default."
+      _sop="pri=32767"
+    else
+      _sop="pri=${zram_swap_priority}"
+  fi
   case "$zram_swap_discard" in
     both)
-      _op="--discard"
+      _sop="${_sop},discard"
       ;;
     once|pages)
-      _op="--discard=${zram_swap_discard}"
+      _sop="${_sop},discard=${zram_swap_discard}"
       ;;
     none)
       ;;
     *)
-      ewarn "Invalid value for discard, using default"
-      _op="--discard"
+      ewarn "Invalid value for swap discard"
       ;;
   esac
-  if [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
-    ewarn "Invalid swap priority, using default."
-    _pri=32767
-  fi
   if mkswap --uuid random --label "$zram_label" -- "${_zram}" > /dev/null 2>&1; then
-    if swapon "$_op" --priority "$_pri" -- "${_zram}" > /dev/null 2>&1; then
+    if swapon -o "$_sop" -- "${_zram}" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
     else
       eerror "Failed to enable zram swap: ${zram_label}"
