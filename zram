@@ -50,8 +50,6 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_algo_params:=""}"
 : "${zram_idle:=""}"
 
-LC_COLLATE=C
-
 depend() {
   need localmount
   after swap zram.*
@@ -254,17 +252,27 @@ start() {
       ;;
   esac
   # einfo "${zram_type}: algo=${zram_comp_algo}"
+  service_set_value zram "${_zram}:${zram_type}"
 }
 
 stop() {
   einfo "Removing zram device: ${zram_label}"
-  _swap="$(_getswap "$zram_label")"
-  if [ -n "$_swap" ]; then
-    _zram="${_swap#* }"
-    _rmswap "$_zram"
-    rm "/var/lock/zram.${zram_label}.lock" > /dev/null 2>&1
-  fi
- eend $? "Failed to remove zram device"
+  _zram="$(service_get_value zram)"
+
+  case ${_zram##*:} in
+    swap)
+      _rmswap "/dev/$_zram"
+      ;;
+    ext4)
+      ;;
+  esac
+  # _swap="$(_getswap "$zram_label")"
+  # if [ -n "$_swap" ]; then
+  #   _zram="${_swap#* }"
+  #   _rmswap "$_zram"
+  # fi
+  rm "/var/lock/zram.${zram_label}.lock" > /dev/null 2>&1
+  eend $? "Failed to remove zram device"
 }
 
 stop_post() {
