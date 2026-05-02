@@ -55,7 +55,7 @@ depend() {
   need localmount
   case $zram_type in
     swap)
-      before swap
+      after swap
       ;;
     ext4)
       before bootmisc tmpfiles-setup tmpfiles.setup
@@ -296,6 +296,7 @@ start() {
 }
 
 stop() {
+  yesno "$RC_GOINGDOWN" && return 0
   einfo "Removing zram: ${zram_label}"
   _zram="$(service_get_value zram)"
   case ${_zram##*:} in
@@ -312,7 +313,7 @@ stop() {
 }
 
 stop_post() {
-  [ "$RC_CMD" = "restart" ] && return 0
+  { [ "$RC_CMD" = "restart" ] || yesno "$RC_GOINGDOWN"; } && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
     _timeout 5 read -r _refcnt < /sys/module/zram/refcnt
