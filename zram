@@ -53,7 +53,7 @@ zram_label="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount
-  before tmpfiles-setup tmpfiles.setup
+  before bootmisc tmpfiles-setup tmpfiles.setup
   after modules swap zram.*
 }
 
@@ -61,9 +61,17 @@ _timeout() {
   _t="$(($1 * 10))" _i=0 
   shift
   while [ "$_i" -lt "$_t" ]; do
-    command "$@" 2> /dev/null && return 0
+    "$@" 2> /dev/null && return 0
     _i="$((_i + 1))"
     sleep 0.1
+  done
+  return 1
+}
+
+_checkswap() {
+  _zram="$1"
+  for _swap in $(swapon --show=name --raw --noheadings); do
+    [ "$_zram" = "$_swap" ] && return 0
   done
   return 1
 }
@@ -112,7 +120,8 @@ _mkswap() {
 
 _rmswap() {
   _zram="$1"
-  _timeout 5 swapoff -L "$zram_label" > /dev/null 2>&1 \
+  _checkswap "$_zram" \
+    && swapoff "$_zram" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram swap: ${zram_label}"
@@ -147,7 +156,7 @@ _mkstorage() {
 
 _rmstorage() {
   _zram="$1"
-  _timeout 5 umount -- "${_zram}" > /dev/null 2>&1 \
+  umount "$_zram" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram storage: ${zram_label}"
@@ -264,18 +273,19 @@ start() {
 
   case "$zram_type" in
     swap) 
-      _mkswap "/dev/${_zram%%:*}"
+      _mkswap "/dev/${_zram%%:*}" \
+        || ! _rmlock
       ;;
     ext4)
-      _mkstorage "/dev/${_zram%%:*}"
+      _mkstorage "/dev/${_zram%%:*}" \
+        || ! _rmlock
       ;;
     *) 
+      _rmlock
       eerror "Invalid zram type"
       ;;
   esac
-  _ret=$?
-  [ "$_ret" -ne 0 ] && _rmlock
-  eend "$_ret" "Failed to create zram: ${zram_label}"
+  eend "$?" "Failed to create zram: ${zram_label}"
 }
 
 stop() {
@@ -283,15 +293,15 @@ stop() {
   _zram="$(service_get_value zram)"
   case ${_zram##*:} in
     swap)
-      _rmswap "/dev/${_zram%%:*}"
+      _rmswap "/dev/${_zram%%:*}" \
+        && _rmlock
       ;;
     ext4)
-      _rmstorage "/dev/${_zram%%:*}"
+      _rmstorage "/dev/${_zram%%:*}" \
+        && _rmlock
       ;;
   esac
-  _ret=$?
-  [ "$_ret" -eq 0 ] && _rmlock
-  eend "$_ret" "Failed to remove zram: ${zram_label}"
+  eend $? "Failed to remove zram: ${zram_label}"
 }
 
 stop_post() {
