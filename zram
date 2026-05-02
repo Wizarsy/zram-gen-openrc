@@ -263,9 +263,9 @@ start() {
       return 1
     fi
   else
-    if [ -z "$zram_comp_algo" ] || ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then \
-      ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
-    fi
+    [ -n "$zram_comp_algo" ] \
+      && { echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null \
+      || ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."; }
     if ! echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null; then
       eerror "Failed to write /dev/${_zram} size"
       _rmlock
