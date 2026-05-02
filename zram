@@ -175,8 +175,9 @@ _rmstorage() {
 _exit() {
   _retval="$1"
   shift
-  _rmlock
+  [ "$_retval" -ne 0 ] && _rmlock
   eend "$_retval" "$@"
+  exit "$_retval"
 }
 
 start_pre() {
