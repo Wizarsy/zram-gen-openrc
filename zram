@@ -220,9 +220,9 @@ start() {
   einfo "Initializing zram device: /dev/${_zram}"
   
   _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    || eerror "Failed to reset zram device /dev/${_zram}: device or resource busy" \
+    || { eerror "Failed to reset zram device /dev/${_zram}: device or resource busy" \
     && _rmlock \
-    && return 1
+    && return 1; }
 
   if [ -n "$zram_backing_dev" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
