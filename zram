@@ -206,7 +206,7 @@ start() {
   _state=0
 
   for _zram_dev in /sys/block/zram*; do
-    if ! [ -e "/var/lock/zram.${zram_label}.lock" ] || _timeout 5 read -r _state < "${_zram_dev}/initstate" && [ "$_state" -eq 0 ]; then
+    if _timeout 5 read -r _state < "${_zram_dev}/initstate" && [ "$_state" -eq 0 ]; then
       _zram="${_zram_dev##*/}"
       break
     fi
