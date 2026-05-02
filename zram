@@ -53,8 +53,15 @@ zram_label="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount
-  before bootmisc tmpfiles-setup tmpfiles.setup
-  after modules swap zram.*
+  case $zram_type in
+    swap)
+      before swap
+      ;;
+    ext4)
+      before bootmisc tmpfiles-setup tmpfiles.setup
+      ;;
+  esac
+  after modules zram.*
 }
 
 _timeout() {
@@ -120,8 +127,8 @@ _mkswap() {
 
 _rmswap() {
   _zram="$1"
-  _checkswap "$_zram" \
-    && swapoff "$_zram" > /dev/null 2>&1 \
+  ! _checkswap "$_zram" \
+    || swapoff "$_zram" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram swap: ${zram_label}"
