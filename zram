@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 
-# zram-openrc - simple script to manage devices in zram using openrc.
+# zram-openrc - Init script for zram management with OpenRC.
 #
 # Copyright (c) 2026 Wizarsy
 # 
@@ -245,12 +245,12 @@ start() {
 
   if [ -n "$zram_backing_dev" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
-      if ! [ -n "$zram_comp_algo" ] || ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
+      if [ -n "$zram_comp_algo" ] && ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
         ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
       fi
       echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null
       if [ -n "$zram_writeback" ] && echo "$zram_writeback" > "/sys/block/${_zram}/writeback" 2> /dev/null; then
-          if [ -z "$zram_writeback_limit" ] || ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
+          if [ -n "$zram_writeback_limit" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
             || ! echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; then
             ewarn "Failed to write /dev/${_zram} writeback limit"
           fi
@@ -263,9 +263,9 @@ start() {
       return 1
     fi
   else
-      if ! [ -n "$zram_comp_algo" ] || ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
-        ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
-      fi
+    if [ -n "$zram_comp_algo" ] && ! echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
+      ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
+    fi
     if ! echo "$_mem_to_alloc" > "/sys/block/${_zram}/disksize" 2> /dev/null; then
       eerror "Failed to write /dev/${_zram} size"
       _rmlock
