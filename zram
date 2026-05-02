@@ -83,6 +83,14 @@ _checkswap() {
   return 1
 }
 
+_checkmount() {
+  _zram="$1"
+  while read -r _dev _; do
+    [ "$_zram" = "$_dev" ] && return 0
+  done < /proc/mounts
+  return 1
+}
+
 _checklocks() {
   set -- /var/lock/zram.*.lock
   [ -e "$1" ] && return 1
@@ -163,7 +171,8 @@ _mkstorage() {
 
 _rmstorage() {
   _zram="$1"
-  umount "$_zram" > /dev/null 2>&1 \
+  ! _checkmount "$_zram" \
+    || umount "$_zram" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram storage: ${zram_label}"
@@ -314,10 +323,10 @@ stop() {
 
 stop_post() {
   { [ "$RC_CMD" = "restart" ] || yesno "$RC_GOINGDOWN"; } && return 0
-  if [ -d "/sys/module/zram" ]; then
+  if [ -d "/sys/module/zram" ] && _checklocks; then
     _refcnt=0
     _timeout 5 read -r _refcnt < /sys/module/zram/refcnt
-    if [ "$_refcnt" -eq 0 ] && _checklocks; then
+    if [ "$_refcnt" -eq 0 ]; then
       ! modprobe -r --dry-run -- zram > /dev/null 2>&1 \
       || { modprobe -r -- zram > /dev/null 2>&1 \
           && einfo "Zram module unloaded"; }
