@@ -141,7 +141,7 @@ _rmswap() {
 _mkstorage() {
   _zram="$1"
   _fsop="huge_file,sparse_super,extent,^uninit_bg,dir_nlink,extra_isize,^has_journal"
-  _mop="defaults,data=writeback"
+  _mop="defaults"
   if [ -n "${zram_storage_options}" ]; then
     _mop="${_mop},${zram_storage_options}"
   fi
@@ -149,7 +149,7 @@ _mkstorage() {
     _mop="${_mop},discard"
   fi
   if mkfs.ext4 -m0 -O"${_fsop}" -U random -L "$zram_label" -- "${_zram}" > /dev/null 2>&1 && tune2fs -c0 -i0 -m0 -- "${_zram}" > /dev/null 2>&1; then
-    if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" "${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
+    if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" -- "${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
       [ -n "$zram_storage_mode" ] \
         && { chmod --quiet "${zram_storage_mode}" "${zram_storage_mountpoint}" \
         || ewarn "Invalid value for mode"; }
@@ -165,7 +165,8 @@ _mkstorage() {
 
 _rmstorage() {
   _zram="$1"
-  umount "${_zram}" > /dev/null 2>&1 \
+  [ -n "${zram_storage_mountpoint}" ] \
+  && umount "${_zram}" > /dev/null 2>&1 \
   && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
   && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
   && einfo "Removed zram storage: ${zram_label}"
