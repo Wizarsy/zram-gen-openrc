@@ -29,7 +29,7 @@
 # shellcheck disable=SC2034
 description="Manages zram devices"
 
-dev_name="${RC_SVCNAME#*.}"
+zram_label="${RC_SVCNAME#*.}"
 
 : "${zram_type:=swap}"
 
@@ -66,6 +66,12 @@ _timeout() {
     sleep 0.1
   done
   eerror "Timeout reached, device or resource busy."
+}
+
+_checklock() {
+  set -- /var/lock/zram.*.lock
+  [ -e "$1" ] && return 1
+  return 0
 }
 
 _getswap() {
@@ -110,17 +116,17 @@ _mkswap() {
     ewarn "Invalid swap priority, using default."
     _pri=32767
   fi
-  mkswap --uuid clear --label "$dev_name" "/dev/${_zram}" > /dev/null 2>&1 \
+  mkswap --uuid clear --label "$zram_label" "/dev/${_zram}" > /dev/null 2>&1 \
     && swapon "$_op" --priority "$_pri" "/dev/${_zram}" > /dev/null 2>&1 \
-    && einfo "Successfully created zram swap device: ${dev_name}"
+    && einfo "Successfully created zram swap device: ${zram_label}"
 }
 
 _rmswap() {
   _zram="$1"
-  swapoff -L "$dev_name" > /dev/null 2>&1 \
+  swapoff -L "$zram_label" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-    && einfo "Removed zram device: ${dev_name}"
+    && einfo "Removed zram device: ${zram_label}"
 }
 
 _mkstorage() {
@@ -132,13 +138,13 @@ _rmstorage() {
 }
 
 start_pre() {
-  if [ "$dev_name" = "$RC_SVCNAME" ]; then
+  if [ "$zram_label" = "$RC_SVCNAME" ]; then
     eerror "${RC_SVCNAME} cannot be started directly. You must create" 
     eerror "symbolic links to it for the zram devices you want to start"
     return 1
   fi
-  if [ "$RC_CMD" = "start" ] && _checkswap "$dev_name"; then
-    eend 1 "zram device with label ${dev_name} already exists"
+  if [ "$RC_CMD" = "start" ] && _checkswap "$zram_label"; then
+    eend 1 "zram device with label ${zram_label} already exists"
   fi
   if ! [ -d "/sys/module/zram" ]; then
     ebegin "Starting zram"
@@ -171,7 +177,11 @@ start() {
     fi
   fi
 
-  touch "/var/run/${_zram}.lock"
+  if [ -e "/var/lock/zram.${zram_label}.lock" ]; then
+    eend 1 ""
+  fi
+
+  touch "/var/lock/zram.${zram_label}.lock"
   
   while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   _mem_total="$((_mem_size / 1024))"
@@ -233,11 +243,11 @@ start() {
   case "$zram_type" in
     swap) 
       _mkswap "$_zram" \
-        || eend 1 "Failed to create zram swap device: ${dev_name}"
+        || eend 1 "Failed to create zram swap device: ${zram_label}"
       ;;
     ext4)
       _mkstorage "$_zram" \
-        || eend 1 "Failed to create zram storage device: ${dev_name}"
+        || eend 1 "Failed to create zram storage device: ${zram_label}"
       ;;
     *) 
       eend 1 "Invalid zram type"
@@ -247,12 +257,12 @@ start() {
 }
 
 stop() {
-  einfo "Removing zram device: ${dev_name}"
-  _swap="$(_getswap "$dev_name")"
+  einfo "Removing zram device: ${zram_label}"
+  _swap="$(_getswap "$zram_label")"
   if [ -n "$_swap" ]; then
     _zram="${_swap#* }"
     _rmswap "$_zram"
-    rm "/var/run/${_zram##*/}.lock" > /dev/null 2>&1
+    rm "/var/lock/zram.${zram_label}.lock" > /dev/null 2>&1
   fi
  eend $? "Failed to remove zram device"
 }
@@ -262,8 +272,7 @@ stop_post() {
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
     if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
-      if [ "$_refcnt" -eq 0 ] && find /var/run/zram*.lock -type f > /dev/null 2>&1; then
-        # while find /var/run/zram*.lock -type f > /dev/null 2>&1; do sleep 1; done
+      if [ "$_refcnt" -eq 0 ] && _checklock; then
         ! modprobe -r --dry-run zram > /dev/null 2>&1 \
         || { modprobe -r zram > /dev/null 2>&1 \
             && einfo "Zram module unloaded"; }
