@@ -140,7 +140,7 @@ _rmswap() {
 
 _mkstorage() {
   _zram="$1"
-  _fsop="huge_file,sparse_super,^has_journal,"
+  _fsop="huge_file,sparse_super,extent,^uninit_bg,dir_nlink,extra_isize,^has_journal"
   _mop="defaults,data=writeback"
   if [ -n "${zram_storage_options}" ]; then
     _mop="${_mop},${zram_storage_options}"
@@ -148,7 +148,7 @@ _mkstorage() {
   if [ -n "$zram_storage_discard" ] && [ "$zram_storage_discard" = "y" ]; then
     _mop="${_mop},discard"
   fi
-  if mkfs.ext4 -c0 -i0 -m0 -O"${_fsop}" -U random -L "$zram_label" "${_zram}" > /dev/null 2>&1; then
+  if mkfs.ext4 -m0 -O"${_fsop}" -U random -L "$zram_label" -- "${_zram}" > /dev/null 2>&1 && tune2fs -c0 -i0 -m0 -- "${_zram}" > /dev/null 2>&1; then
     if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" "${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
       [ -n "$zram_storage_mode" ] \
         && { chmod --quiet "${zram_storage_mode}" "${zram_storage_mountpoint}" \
