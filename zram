@@ -261,7 +261,7 @@ stop() {
 
   case ${_zram##*:} in
     swap)
-      _rmswap "/dev/$_zram"
+      _rmswap "/dev/${_zram%%:*}"
       ;;
     ext4)
       ;;
