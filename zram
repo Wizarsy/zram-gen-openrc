@@ -35,8 +35,9 @@ zram_label="${RC_SVCNAME#*.}"
 
 : "${zram_storage_mountpoint:=""}"
 : "${zram_storage_mode:=755}"
-: "${zram_storage_owgr:=""}"
 : "${zram_storage_options:=noatime}"
+: "${zram_storage_owgr:=""}"
+: "${zram_storage_discard:=""}"
 
 : "${zram_swap_priority:=32767}"
 : "${zram_swap_discard:=both}"
@@ -139,8 +140,16 @@ _rmswap() {
 
 _mkstorage() {
   _zram="$1"
-  if mkfs -t ext4 -U random -L "$zram_label" "/dev/${_zram}" > /dev/null 2>&1; then
-    if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "defaults,data=writeback,${zram_storage_options}" "/dev/${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
+  _fsop="huge_file,sparse_super,^has_journal,"
+  _mop="defaults,data=writeback"
+  if [ -n "${zram_storage_options}" ]; then
+    _mop="${_mop},${zram_storage_options}"
+  fi
+  if [ -n "$zram_storage_discard" ] && [ "$zram_storage_discard" = "y" ]; then
+    _mop="${_mop},discard"
+  fi
+  if mkfs -c0 -i0 -m0 -O"${_fsop}" -t ext4 -U random -L "$zram_label" "/dev/${_zram}" > /dev/null 2>&1; then
+    if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" "/dev/${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
       [ -n "$zram_storage_mode" ] \
         && { chmod --quiet "${zram_storage_mode}" "${zram_storage_mountpoint}" \
         || ewarn "Invalid value for mode"; }
@@ -156,7 +165,7 @@ _mkstorage() {
 
 _rmstorage() {
   _zram="$1"
-  umount "/dev/${_zram}" > /dev/null 2>&1 \
+  umount "${_zram}" > /dev/null 2>&1 \
   && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
   && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
   && einfo "Removed zram storage: ${zram_label}"
