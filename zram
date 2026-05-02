@@ -55,7 +55,7 @@ depend() {
   need localmount
   case $zram_type in
     swap)
-      after swap
+      want swap
       ;;
     ext4)
       before bootmisc tmpfiles-setup tmpfiles.setup
@@ -72,22 +72,6 @@ _timeout() {
     _i="$((_i + 1))"
     sleep 0.1
   done
-  return 1
-}
-
-_checkswap() {
-  _zram="$1"
-  for _swap in $(swapon --show=name --raw --noheadings); do
-    [ "$_zram" = "$_swap" ] && return 0
-  done
-  return 1
-}
-
-_checkmount() {
-  _zram="$1"
-  while read -r _dev _; do
-    [ "$_zram" = "$_dev" ] && return 0
-  done < /proc/mounts
   return 1
 }
 
@@ -113,6 +97,8 @@ _mkswap() {
     once|pages)
       _op="--discard=${zram_swap_discard}"
       ;;
+    none)
+      ;;
     *)
       ewarn "Invalid value for discard, using default"
       _op="--discard"
@@ -135,9 +121,13 @@ _mkswap() {
 
 _rmswap() {
   _zram="$1"
-  { ! _checkswap "$_zram" \
-    || swapoff "$_zram" > /dev/null 2>&1; } \
-    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+  for _swap in $(swapon --show=name --raw --noheadings); do
+    if [ "$_zram" = "$_swap" ]; then
+      swapoff "$_zram" > /dev/null 2>&1
+      break
+    fi
+  done
+    _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram swap: ${zram_label}"
 }
@@ -171,9 +161,13 @@ _mkstorage() {
 
 _rmstorage() {
   _zram="$1"
-  { ! _checkmount "$_zram" \
-    || umount "$_zram" > /dev/null 2>&1; } \
-    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+  while read -r _dev _; do
+    if [ "$_zram" = "$_dev" ]; then
+      umount "$_zram" > /dev/null 2>&1
+      break
+    fi
+  done < /proc/mounts
+  _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram storage: ${zram_label}"
 }
@@ -264,7 +258,9 @@ start() {
         ewarn "Failed to set /dev/${_zram} writeback"
       fi
     else
-      ewarn "Failed to write /dev/${_zram} backing device"
+      eerror "Failed to write /dev/${_zram} backing device"
+      _rmlock
+      return 1
     fi
   else
     [ -n "$zram_comp_algo" ] \
