@@ -45,6 +45,7 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_size:=25%}"
 : "${zram_writeback:=incompressible}"
 : "${zram_writeback_limit:=""}"
+: "${zram_writeback_batch_size:=""}"
 : "${zram_mem_limit:=""}"
 : "${zram_backing_dev:=""}"
 : "${zram_comp_algo:=""}"
@@ -253,6 +254,9 @@ start() {
           if [ -n "$zram_writeback_limit" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
             || ! echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; then
             ewarn "Failed to write /dev/${_zram} writeback limit"
+          fi
+          if [ -n "${zram_writeback_batch_size}" ] && ! echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size"; then
+            ewarn "Failed to write /dev/${_zram} writeback batch size"
           fi
       else 
         ewarn "Failed to set /dev/${_zram} writeback"
