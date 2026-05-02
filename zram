@@ -148,7 +148,7 @@ _mkstorage() {
   if [ -n "$zram_storage_discard" ] && [ "$zram_storage_discard" = "y" ]; then
     _mop="${_mop},discard"
   fi
-  if mkfs -c0 -i0 -m0 -O"${_fsop}" -t ext4 -U random -L "$zram_label" "${_zram}" > /dev/null 2>&1; then
+  if mkfs.ext4 -c0 -i0 -m0 -O"${_fsop}" -U random -L "$zram_label" "${_zram}" > /dev/null 2>&1; then
     if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" "${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
       [ -n "$zram_storage_mode" ] \
         && { chmod --quiet "${zram_storage_mode}" "${zram_storage_mountpoint}" \
@@ -206,7 +206,8 @@ start() {
   _state=0
 
   for _zram_dev in /sys/block/zram*; do
-    if _timeout 5 read -r _state < "${_zram_dev}/initstate" && [ "$_state" -eq 0 ]; then
+    _timeout 5 read -r _state < "${_zram_dev}/initstate"
+    if [ "$_state" -eq 0 ]; then
       _zram="${_zram_dev##*/}"
       break
     fi
@@ -313,7 +314,8 @@ stop_post() {
   [ "$RC_CMD" = "restart" ] && return 0
   if [ -d "/sys/module/zram" ]; then
     _refcnt=0
-    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt && [ "$_refcnt" -eq 0 ] && _checklocks; then
+    _timeout 5 read -r _refcnt < /sys/module/zram/refcnt
+    if [ "$_refcnt" -eq 0 ] && _checklocks; then
       ! modprobe -r --dry-run zram > /dev/null 2>&1 \
       || { modprobe -r zram > /dev/null 2>&1 \
           && einfo "Zram module unloaded"; }
