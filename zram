@@ -53,7 +53,8 @@ zram_label="${RC_SVCNAME#*.}"
 
 depend() {
   need localmount
-  after swap zram.*
+  before tmpfiles-setup tmpfiles.setup
+  after modules swap zram.*
 }
 
 _timeout() {
@@ -73,36 +74,9 @@ _checklocks() {
   return 0
 }
 
-_mklock() {
-  ! [ -e  "/var/lock/zram.${zram_label}.lock" ] || return 1
-  touch "/var/lock/zram.${zram_label}.lock"
-}
-
 _rmlock() {
   [ -e "/var/lock/zram.${zram_label}.lock" ] \
-    && rm "/var/lock/zram.${zram_label}.lock" > /dev/null 2>&1
-}
-
-_getswap() {
-  _label="$1"
-  _return=""
-  while read -r _swap_dev; do
-    if [ "$_label" = "${_swap_dev% *}" ]; then
-      _return="$_swap_dev"
-      break
-    fi
-  done << EOF 
-  $(swapon --show=label,name --raw --noheadings)
-EOF
-  echo "$_return"
-}
-
-_checkswap() {
-  _label="$1"
-  for _swap_dev in $(swapon --show=label --raw --noheadings); do
-    [ "$_label" = "$_swap_dev" ] && return 1
-  done
-  return 0
+    && rm "/var/lock/zram.${zram_label}.lock"
 }
 
 _mkswap() {
@@ -121,18 +95,24 @@ _mkswap() {
       _op="--discard"
       ;;
   esac
-  if [ "$zram_swap_priority" -gt 32767 ]; then
+  if [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
     ewarn "Invalid swap priority, using default."
     _pri=32767
   fi
-  mkswap --uuid random --label "$zram_label" "${_zram}" > /dev/null 2>&1 \
-    && swapon "$_op" --priority "$_pri" "${_zram}" > /dev/null 2>&1 \
-    && einfo "Successfully created zram swap: ${zram_label}"
+  if mkswap --uuid random --label "$zram_label" -- "${_zram}" > /dev/null 2>&1; then
+    if swapon "$_op" --priority "$_pri" -- "${_zram}" > /dev/null 2>&1; then
+      einfo "Successfully created zram swap: ${zram_label}"
+    else
+      eerror "Failed to enable zram swap: ${zram_label}"
+    fi
+  else
+    eerror "Failed to create zram swap: ${zram_label}"
+  fi
 }
 
 _rmswap() {
   _zram="$1"
-  swapoff -L "$zram_label" > /dev/null 2>&1 \
+  _timeout 5 swapoff -L "$zram_label" > /dev/null 2>&1 \
     && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
     && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
     && einfo "Removed zram swap: ${zram_label}"
@@ -151,33 +131,26 @@ _mkstorage() {
   if mkfs.ext4 -m0 -O"${_fsop}" -U random -L "$zram_label" -- "${_zram}" > /dev/null 2>&1 && tune2fs -c0 -i0 -m0 -- "${_zram}" > /dev/null 2>&1; then
     if [ -n "${zram_storage_mountpoint}" ] && mount --mkdir -t ext4 -o "$_mop" -- "${_zram}" "${zram_storage_mountpoint}" > /dev/null 2>&1; then
       [ -n "$zram_storage_mode" ] \
-        && { chmod --quiet "${zram_storage_mode}" "${zram_storage_mountpoint}" \
+        && { chmod "${zram_storage_mode}" -- "${zram_storage_mountpoint}" > /dev/null 2>&1 \
         || ewarn "Invalid value for mode"; }
       [ -n "$zram_storage_owgr" ] \
-        && { chown --quiet "${zram_storage_owgr}" "${zram_storage_mountpoint}" \
-        || ewarn "Invalid value for owner"; }
-      einfo "Successfully created zram: ${zram_label}"
+        && { chown "${zram_storage_owgr}" -- "${zram_storage_mountpoint}" > /dev/null 2>&1 \
+        || ewarn "Invalid value for owner:group"; }
+      einfo "Successfully created zram storage: ${zram_label}"
     else
-      ewarn "Zram ${zram_label} created but not mounted: invalid mountpoint"   
+      eerror "Failed to mount zram storage: ${zram_label}"   
     fi
+  else
+    eerror "Failed to make zram storage: ${zram_label}"
   fi
 }
 
 _rmstorage() {
   _zram="$1"
-  [ -n "${zram_storage_mountpoint}" ] \
-  && umount "${_zram}" > /dev/null 2>&1 \
-  && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
-  && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-  && einfo "Removed zram storage: ${zram_label}"
-}
-
-_exit() {
-  _retval="$1"
-  shift
-  [ "$_retval" -ne 0 ] && _rmlock
-  eend "$_retval" "$@"
-  exit "$_retval"
+  _timeout 5 umount -- "${_zram}" > /dev/null 2>&1 \
+    && _timeout 5 echo 1 > "/sys/block/${_zram##*/}/reset" \
+    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
+    && einfo "Removed zram storage: ${zram_label}"
 }
 
 start_pre() {
@@ -218,13 +191,16 @@ start() {
     if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
         _zram="zram${_hot}"
     else
-      eend 1 "Failed to hot add a zram device"
+      eerror "Failed to hot add a zram device"
+      return 1
     fi
   fi
 
-  _mklock \
-    || eend 1 "A lock file exists"
-  
+  if ! [ -e  "/var/lock/zram.${zram_label}.lock" ] && ! touch "/var/lock/zram.${zram_label}.lock"; then
+    eerror "A lock file exists"
+    return 1
+  fi
+
   while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
   _mem_total="$((_mem_size / 1024))"
 
@@ -244,7 +220,9 @@ start() {
   einfo "Initializing zram device: /dev/${_zram}"
   
   _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    || _exit 1 "Failed to reset zram device /dev/${_zram}: device or resource busy"
+    || eerror "Failed to reset zram device /dev/${_zram}: device or resource busy" \
+    && _rmlock \
+    && return 1
 
   if [ -n "$zram_backing_dev" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
@@ -295,7 +273,9 @@ start() {
       eerror "Invalid zram type"
       ;;
   esac
-  _exit $? "Failed to create zram: ${zram_label}"
+  _ret=$?
+  [ "$_ret" -ne 0 ] && _rmlock
+  eend "$_ret" "Failed to create zram: ${zram_label}"
 }
 
 stop() {
@@ -309,7 +289,9 @@ stop() {
       _rmstorage "/dev/${_zram%%:*}"
       ;;
   esac
-  _exit $? "Failed to remove zram: ${zram_label}"
+  _ret=$?
+  [ "$_ret" -eq 0 ] && _rmlock
+  eend "$_ret" "Failed to remove zram: ${zram_label}"
 }
 
 stop_post() {
@@ -318,8 +300,8 @@ stop_post() {
     _refcnt=0
     _timeout 5 read -r _refcnt < /sys/module/zram/refcnt
     if [ "$_refcnt" -eq 0 ] && _checklocks; then
-      ! modprobe -r --dry-run zram > /dev/null 2>&1 \
-      || { modprobe -r zram > /dev/null 2>&1 \
+      ! modprobe -r --dry-run -- zram > /dev/null 2>&1 \
+      || { modprobe -r -- zram > /dev/null 2>&1 \
           && einfo "Zram module unloaded"; }
     fi
   fi
