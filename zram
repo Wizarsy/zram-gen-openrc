@@ -147,8 +147,8 @@ _mkstorage() {
     && tune2fs -c0 -i0 -- "/dev/${_zram}" > /dev/null 2>&1; then
     if [ -n "$zram_storage_mountpoint" ] \
       && mkdir -p -- "$zram_storage_mountpoint" > /dev/null 2>&1 \
-      && chmod "${zram_storage_mode:=0775}" -- "$zram_storage_mountpoint" \
       && mount -t ext4 -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" \
+      && chmod "${zram_storage_mode:=0775}" -- "$zram_storage_mountpoint" \
       && chown "${zram_storage_owgr:=root:root}" -- "$zram_storage_mountpoint"; then
       einfo "Successfully created zram storage: ${zram_label}"
     else
