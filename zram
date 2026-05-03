@@ -94,7 +94,7 @@ _rmlock() {
 _mkswap() {
   _zram="$1"
   _sop=""
-  if { [ "${zram_swap_priority:-set}" != "set" ] && ! _isnum "$zram_swap_priority"; } \
+  if { [ "${zram_swap_priority:-set}" != "set" ] && _isnum "$zram_swap_priority"; } \
     || { _isnum "$zram_swap_priority" && [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
