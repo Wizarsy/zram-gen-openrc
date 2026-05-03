@@ -64,7 +64,7 @@ depend() {
 
 _isnum() {
   case $1 in
-    *[!0-9]*) return 1;;
+    *[!0-9]*|"") return 1;;
   esac
   return 0
 }
@@ -86,16 +86,20 @@ _checklocks() {
   return 0
 }
 
-_rmlock() {
+_cleanup() {
+  _zram="$1"
   [ -e "/var/lock/zram.${zram_label}.lock" ] \
     && rm "/var/lock/zram.${zram_label}.lock"
+  _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
+    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
+    && einfo "Removed zram: ${zram_label}"
 }
 
 _mkswap() {
   _zram="$1"
   _sop=""
   if { [ "${zram_swap_priority:-set}" != "set" ] && ! _isnum "$zram_swap_priority"; } \
-  || { _isnum "$zram_swap_priority" && { [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; }; then
+    || { _isnum "$zram_swap_priority" && { [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; }; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
   fi
@@ -126,9 +130,6 @@ _rmswap() {
       break
     fi
   done
-  _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-    && einfo "Removed zram swap: ${zram_label}"
 }
 
 _mkstorage() {
@@ -168,9 +169,6 @@ _rmstorage() {
       break
     fi
   done < /proc/mounts
-  _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-    && einfo "Removed zram storage: ${zram_label}"
 }
 
 start_pre() {
@@ -256,7 +254,7 @@ start() {
   
   if ! _timeout 5 echo 1 > "/sys/block/${_zram}/reset"; then
     eerror "Failed to reset zram device /dev/${_zram}: device or resource busy"
-    _rmlock
+    _cleanup "$_zram"
     return 1
   fi
 
@@ -283,7 +281,7 @@ start() {
       fi
     else
       eerror "Failed to write /dev/${_zram} backing device"
-      _rmlock
+      _cleanup "$_zram"
       return 1
     fi
   else
@@ -296,14 +294,14 @@ start() {
     fi
     if ! echo "$_mem_size" > "/sys/block/${_zram}/disksize" 2> /dev/null; then
       eerror "Failed to write /dev/${_zram} size"
-      _rmlock
+      _cleanup "$_zram"
       return 1
     fi
   fi
   
   if [ -n "$_mem_limit" ] && ! echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null; then
     eerror "Failed to write /dev/${_zram} memory limit"
-    _rmlock
+    _cleanup "$_zram"
     return 1
   fi
   
@@ -311,15 +309,15 @@ start() {
     swap)
       service_set_value zram "${_zram}:${zram_type}"
       _mkswap "$_zram" \
-        || ! _rmlock
+        || ! _cleanup "$_zram"
       ;;
     ext4)
       service_set_value zram "${_zram}:${zram_type}"
       _mkstorage "$_zram" \
-        || ! _rmlock
+        || ! _cleanup "$_zram"
       ;;
     *) 
-      _rmlock
+      _cleanup "$_zram"
       eerror "Invalid zram type"
       ;;
   esac
@@ -333,11 +331,11 @@ stop() {
   case ${_zram##*:} in
     swap)
       _rmswap "${_zram%%:*}" \
-        && _rmlock
+        && _cleanup "$_zram"
       ;;
     ext4)
       _rmstorage "${_zram%%:*}" \
-        && _rmlock
+        && _cleanup "$_zram"
       ;;
   esac
   eend $? "Failed to remove zram: ${zram_label}"
