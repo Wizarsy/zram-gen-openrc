@@ -98,7 +98,7 @@ _cleanup() {
 _mkswap() {
   _zram="$1"
   _sop=""
-  if { [ "${zram_swap_priority:-set}" != "set" ] && ! _isnum "$zram_swap_priority"; } \
+  if { [ -n "${zram_swap_priority-set}" ] && ! _isnum "$zram_swap_priority"; } \
     || { _isnum "$zram_swap_priority" && { [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; }; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
@@ -236,7 +236,7 @@ start() {
       ;;
   esac
 
-  if [ -n "$zram_mem_limit" ]; then
+  if [ -n "${zram_mem_limit-set}" ]; then
     case "${zram_mem_limit##*[0-9]}" in
       %)
         _mem_limit="$((${zram_mem_limit%\%} * _mem_total / 100))MiB"
@@ -258,10 +258,10 @@ start() {
     return 1
   fi
 
-  if [ -n "$zram_backing_dev" ]; then
+  if [ -n "${zram_backing_dev-set}" ]; then
     if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
-      if [ -n "$zram_comp_algo" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
-        [ -n "$zram_algo_params" ] \
+      if [ -n "${zram_comp_algo-set}" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
+        [ -n "${zram_algo_params-set}" ] \
           && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
           || ewarn "Invalid compression algorithm parameters"; }
       else
@@ -272,11 +272,11 @@ start() {
           [Nn]|[Nn][Oo]|*) echo 0 > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
       esac
       echo "$_mem_size" > "/sys/block/${_zram}/disksize" 2> /dev/null
-      if [ -n "$zram_writeback_limit" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
+      if [ -n "${zram_writeback_limit-set}" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
         || ! echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; then
         ewarn "Failed to write /dev/${_zram} writeback limit"
       fi
-      if [ -n "${zram_writeback_batch_size}" ] && ! echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size" 2> /dev/null; then
+      if [ -n "${zram_writeback_batch_size-set}" ] && ! echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size" 2> /dev/null; then
         ewarn "Failed to write /dev/${_zram} writeback batch size"
       fi
     else
@@ -285,8 +285,8 @@ start() {
       return 1
     fi
   else
-    if [ -n "$zram_comp_algo" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
-      [ -n "$zram_algo_params" ] \
+    if [ -n "${zram_comp_algo-set}" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
+      [ -n "${zram_algo_params-set}" ] \
         && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
         || ewarn "Invalid compression algorithm parameters"; }
     else
@@ -299,7 +299,7 @@ start() {
     fi
   fi
   
-  if [ -n "$_mem_limit" ] && ! echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null; then
+  if [ -n "${_mem_limit-set}" ] && ! echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null; then
     eerror "Failed to write /dev/${_zram} memory limit"
     _cleanup "$_zram"
     return 1
