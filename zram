@@ -47,7 +47,6 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_storage_mountpoint:=}"
 : "${zram_storage_mode:=}"
 : "${zram_storage_options:=}"
-: "${zram_storage_discard:=}"
 : "${zram_storage_owgr:=}"
 
 depend() {
@@ -95,7 +94,7 @@ _rmlock() {
 _mkswap() {
   _zram="$1"
   _sop=""
-  if ! _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
+  if _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
   fi
@@ -134,10 +133,6 @@ _mkstorage() {
   _fsop="huge_file,sparse_super,extent,^uninit_bg,dir_nlink,extra_isize,^has_journal"
   _mop="defaults"
   _mop="${_mop},${zram_storage_options:=noatime}"
-  case "$zram_storage_discard" in
-    [Yy]|[Yy][Ee][Ss]) _mop="${_mop},discard";;
-    [Nn]|[Nn][Oo]|*) _mop="${_mop},nodiscard";;
-  esac
   if ! awk -v uwgr="$zram_storage_owgr" 'BEGIN {if (uwgr ~ /(^[a-z_][a-z0-9_-]*)$|(^[a-z_][a-z0-9_-]*:[a-z_][a-z0-9_-]*)$/) {exit 0} else {exit 1}}'; then
     ewarn "Ivalid value owner:group, using default"
     unset zram_storage_owgr
@@ -268,6 +263,10 @@ start() {
       else
         ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
       fi
+      case $zram_compressed_writeback in
+          [Yy]|[Yy][Ee][Ss]) echo 1 > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
+          [Nn]|[Nn][Oo]|*) echo 0 > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
+      esac
       echo "$_mem_size" > "/sys/block/${_zram}/disksize" 2> /dev/null
       if [ -n "$zram_writeback_limit" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
         || ! echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; then
@@ -276,10 +275,6 @@ start() {
       if [ -n "${zram_writeback_batch_size}" ] && ! echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size" 2> /dev/null; then
         ewarn "Failed to write /dev/${_zram} writeback batch size"
       fi
-        case $zram_compressed_writeback in
-          [Yy]|[Yy][Ee][Ss]) echo "yes" > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
-          [Nn]|[Nn][Oo]|*) echo "no" > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
-        esac
     else
       eerror "Failed to write /dev/${_zram} backing device"
       _rmlock
