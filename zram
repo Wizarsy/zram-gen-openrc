@@ -64,7 +64,7 @@ depend() {
 
 _isnum() {
   case $1 in
-    *[!0-9]*|"") return 1;;
+    *[!0-9]*) return 1;;
   esac
   return 0
 }
@@ -93,19 +93,18 @@ _rmlock() {
 
 _mkswap() {
   _zram="$1"
-  _sop=""
-  if _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
+  _disc=""
+  if ! _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
   fi
-  _sop="pri=${zram_swap_priority:=32767}"
   case "$zram_swap_discard" in
-    once|pages) _sop="${_sop},discard=${zram_swap_discard}";;
+    once|pages) _disc="-d${zram_swap_discard}";;
     none|[Nn]|[Nn][Oo]);;
-    both|*) _sop="${_sop},discard";;
+    both|*) _disc="-d";;
   esac
-  if mkswap --uuid random --label "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if swapon --options "$_sop" -- "$_zram" > /dev/null 2>&1; then
+  if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
+    if swapon -p "${zram_swap_priority:=32767}" "$_disc" -- "$_zram" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
     else
       eerror "Failed to enable zram swap: ${zram_label}"
@@ -141,10 +140,12 @@ _mkstorage() {
     ewarn "Ivalid value for mode, using default"
     unset zram_storage_mode
   fi
-  if mkfs.ext4 -m0 -O"${_fsop}" -U random -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1 && tune2fs -c0 -i0 -m0 -- "/dev/${_zram}" > /dev/null 2>&1; then
+  if mkfs.ext4 -m0 -O"${_fsop}" -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1 && tune2fs -c0 -i0 -- "/dev/${_zram}" > /dev/null 2>&1; then
     if [ -n "$zram_storage_mountpoint" ] \
-      && checkpath --quiet --directory --mode "${zram_storage_mode:=0775}" --owner "${zram_storage_owgr:=root:root}" "$zram_storage_mountpoint" \
-      && mount -types ext4 --options "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null 2>&1; then
+      && mkdir -p -- "$zram_storage_mountpoint" > /dev/null 2>&1 \
+      && chmod "${zram_storage_mode:=0775}" -- "$zram_storage_mountpoint" > /dev/null 2>&1 \
+      && chown "${zram_storage_owgr:=root:root}" -- "$zram_storage_mountpoint" > /dev/null 2>&1 \
+      && mount -t ext4 -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null 2>&1; then
       einfo "Successfully created zram storage: ${zram_label}"
     else
       eerror "Failed to mount zram storage: ${zram_label}"   
