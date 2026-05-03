@@ -104,8 +104,9 @@ _mkswap() {
     none|[Nn]|[Nn][Oo]);;
     both|*) _sop="${_sop} -d";;
   esac
+  set -- "$_sop"
   if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if swapon "$_sop" -- "/dev/${_zram}" > /dev/null 2>&1; then
+    if swapon "$@" -- "/dev/${_zram}" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
     else
       eerror "Failed to enable zram swap: ${zram_label}"
