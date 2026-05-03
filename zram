@@ -64,7 +64,7 @@ depend() {
 
 _isnum() {
   case $1 in
-    *[!0-9]*) return 1;;
+    *[!0-9]*|"") return 1;;
   esac
   return 0
 }
@@ -93,18 +93,19 @@ _rmlock() {
 
 _mkswap() {
   _zram="$1"
-  _disc=""
-  if ! _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
+  _sop=""
+  if _isnum "$zram_swap_priority" && [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
   fi
+  _sop="-p ${zram_swap_priority:=32767}"
   case "$zram_swap_discard" in
-    once|pages) _disc="-d${zram_swap_discard}";;
+    once|pages) _sop="${_sop} -d${zram_swap_discard}";;
     none|[Nn]|[Nn][Oo]);;
-    both|*) _disc="-d";;
+    both|*) _sop="${_sop} -d";;
   esac
   if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if swapon -p "${zram_swap_priority:=32767}" "$_disc" -- "/dev/${_zram}" > /dev/null 2>&1; then
+    if swapon "$_sop" -- "/dev/${_zram}" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
     else
       eerror "Failed to enable zram swap: ${zram_label}"
