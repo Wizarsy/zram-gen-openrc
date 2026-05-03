@@ -33,11 +33,11 @@ zram_label="${RC_SVCNAME#*.}"
 
 : "${zram_type:=swap}"
 : "${zram_size:=50%}"
+: "${zram_mem_limit:=}"
+: "${zram_backing_dev:=}"
 : "${zram_writeback_limit:=}"
 : "${zram_writeback_batch_size:=}"
 : "${zram_compressed_writeback:=}"
-: "${zram_mem_limit:=}"
-: "${zram_backing_dev:=}"
 : "${zram_comp_algo:=}"
 : "${zram_algo_params:=}"
 
@@ -64,7 +64,7 @@ depend() {
 
 _isnum() {
   case $1 in
-    *[!0-9]*|"") return 1;;
+    *[!0-9]*) return 1;;
   esac
   return 0
 }
@@ -94,7 +94,7 @@ _rmlock() {
 _mkswap() {
   _zram="$1"
   _sop=""
-  if _isnum "$zram_swap_priority" && [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
+  if ! _isnum "$zram_swap_priority" || [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; then
     ewarn "Invalid swap priority, using default."
     unset zram_swap_priority
   fi
