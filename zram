@@ -105,6 +105,7 @@ _mkswap() {
     both|*) _sop="${_sop} -d";;
   esac
   eval "set -- _ $_sop"
+  shift
   if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
     if swapon "$@" -- "/dev/${_zram}" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
