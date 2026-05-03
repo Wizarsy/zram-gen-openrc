@@ -6,33 +6,38 @@ Init script for zram management with OpenRC.
 
 ## Usage
 
-A simple configuration can be done by creating a `zram-gen` file in `/etc/conf.d` with `ZRAM0=true`. All configuration options with example values ​​are available below.
+Create a symbolic link in the format `zram.LABEL` to `zram` in `/etc/init.d`, configuration files following the same naming format should go in `etc/conf.d`. After configuration, enable the script with `rc-update add zram.LABEL boot` and start it with `rc-service zram.LABEL start`.
 
-| Name                 | Default | Value                                 | Description                                                      |
-| :------------------- | ------- | :------------------------------------ | :--------------------------------------------------------------- |
-| zram_type            |         | true, false                           | Controls the activation of zram device                           |
-| zram_size            |         | 25%, 4GiB, 8192MiB                    | Logical size of the zram device                                  |
-| zram_writeback       |         | 2GiB, 1024MiB                         | Memory limit to be used by the zram device                       |
-| zram_writeback_limit |         | lz4, zstd, lzo...                     | Algorithm used by the zram device                                |
-| zram_mem_limit       |         | "level=1 dict=/etc/dictionary"        | Parameters to be passed to the algorithm used by the zram device |
-| zram_backing_dev     |         | A number less than or equal to 32767  | Zram swap device priority                                        |
-| zram_comp_algo       |         | /dev/sda2                             | Backing device to be used by the zram device                     |
-| zram_algo_params     |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| zram_idle            |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
-| ZRAM*X*_WRITEBACK    |         | huge, idle, huge_idle, incompressible | Zram device writeback configuration                              |
+### General config
 
-| Column1 | Column2 | Column3 |
-| ------- | ------- | ------- |
-| Item1   | Item1   | Item1   |
-| Item1   | Item1   | Item1   |
-| Item1   | Item1   | Item1   |
+| Name                      | Default | Example                        |
+| :------------------------ | ------- | :----------------------------- |
+| zram_type                 | swap    | swap or ext4                   |
+| zram_size                 | 50%     | 25%, 4GiB, 8192MiB             |
+| zram_mem_limit            | empty   | 10%, 2GiB, 4096MiB             |
+| zram_backing_dev          | empty   | /dev/sda1                      |
+| zram_writeback_limit      | empty   | 400MiB, fixed values only      |
+| zram_writeback_batch_size | empty   | 32, 64...                      |
+| zram_compressed_writeback | empty   | yes/no                         |
+| zram_comp_algo            | empty   | lz4, zstd, lzo...              |
+| zram_algo_params          | empty   | "level=1 dict=/etc/dictionary" |
 
-*X* = Zram device index.
+### Swap config
+
+| Name               | Default | Example                 |
+| ------------------ | ------- | ----------------------- |
+| zram_swap_priority | 32767   | between -1 and 32767    |
+| zram_swap_discard  | both    | both, once, pages, none |
+
+### Storage config
+
+| Name                    | Default   | Example         |
+| ----------------------- | --------- | --------------- |
+| zram_storage_mode       | 0775      | 777, 1777, 0755 |
+| zram_storage_options    | noatime   | relatime        |
+| zram_storage_owgr       | root:root | nobody:nogroup  |
+| zram_storage_discard    | no        | yes/no          |
+| zram_storage_mountpoint | empty     | /tmp            |
 
 ## References
 
