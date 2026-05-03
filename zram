@@ -104,7 +104,7 @@ _mkswap() {
     both|*) _disc="-d";;
   esac
   if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if swapon -p "${zram_swap_priority:=32767}" "$_disc" -- "$_zram" > /dev/null 2>&1; then
+    if swapon -p "${zram_swap_priority:=32767}" "$_disc" -- "/dev/${_zram}" > /dev/null 2>&1; then
       einfo "Successfully created zram swap: ${zram_label}"
     else
       eerror "Failed to enable zram swap: ${zram_label}"
