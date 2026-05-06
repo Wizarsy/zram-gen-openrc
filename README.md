@@ -18,7 +18,7 @@ When using a non-preconfigured file system, you can use `@label@` in `zram_stora
 | zram_size                 | 50%     | 25%, 4GiB, 8192MiB                                                 |
 | zram_mem_limit            | empty   | 10%, 2GiB, 4096MiB                                                 |
 | zram_backing_dev          | empty   | /dev/sda1                                                          |
-| zram_writeback_limit      | empty   | 400MiB, relating to the backing device                             |
+| zram_writeback_limit      | empty   | 5%, 400MiB. Relating to the backing device                         |
 | zram_writeback_batch_size | empty   | 32, 64...                                                          |
 | zram_compressed_writeback | empty   | yes/no                                                             |
 | zram_comp_algo            | empty   | lz4, zstd, lzo...                                                  |
