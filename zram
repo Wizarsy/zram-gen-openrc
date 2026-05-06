@@ -352,16 +352,16 @@ start() {
         ;;
       ext2)
         _tune2fs=1
-        _mkfsop="-L ${zram_label} -m0 -Osparse_super,large_file"
+        _mkfsop="-L ${zram_label} -q -m0 -Osparse_super,large_file"
         ;;
       ext3)
         _tune2fs=1
-        _mkfsop="-L ${zram_label} -m0 -O^has_journal,sparse_super,dir_index,large_file"
+        _mkfsop="-L ${zram_label} -q -m0 -O^has_journal,sparse_super,dir_index,large_file"
         _mop="${_mop},barrier=0"
         ;;
       ext4)
         _tune2fs=1
-        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,^huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
+        _mkfsop="-L ${zram_label} -q -m0 -O^has_journal,^uninit_bg,^huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
         _mop="${_mop},barrier=0"
         ;;
       *)
