@@ -344,13 +344,18 @@ start() {
         ;;
       ext2)
         _tune2fs=1
-        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize"
-        _mop="${_mop},nobarrier,${zram_storage_options}"
+        _mkfsop="-L ${zram_label} -m0 -Osparse_super,large_file"
+        _mop="${_mop},${zram_storage_options}"
         ;;
-      ext[3-4])
+      ext3)
         _tune2fs=1
-        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
-        _mop="${_mop},nobarrier,${zram_storage_options}"
+        _mkfsop="-L ${zram_label} -m0 -O^has_journal,sparse_super,dir_index,large_file"
+        _mop="${_mop},barrier=0,${zram_storage_options}"
+        ;;
+      ext4)
+        _tune2fs=1
+        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,^huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
+        _mop="${_mop},barrier=0,${zram_storage_options}"
         ;;
       *)
         if ! [ -x "/usr/bin/mkfs.${zram_type}" ]; then
