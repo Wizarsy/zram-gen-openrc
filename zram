@@ -44,7 +44,7 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_swap_discard:=32767}"
 : "${zram_swap_priority:=both}"
 
-: "${zram_storage_options:=noatime}"
+: "${zram_storage_options:=noatime,nodiscard}"
 : "${zram_storage_owgr:=}"
 : "${zram_storage_mode:=}"
 : "${zram_storage_mountpoint:=}"
