@@ -339,7 +339,7 @@ start() {
     _mkfsop=""
     case "$zram_type" in
       btrfs)
-        _mkfsop="-L ${zram_label} -d single -m single -Oextref,no_holes"
+        _mkfsop="-L ${zram_label} -d single -m single -Oextref,no-holes"
         _mop="${_mop},nobarrier,compress=no,${zram_storage_options}"
         ;;
       ext2)
