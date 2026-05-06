@@ -119,7 +119,7 @@ start_pre() {
     eerror "Zram device with label ${zram_label} already exists"
     return 1
   fi
-  if ! [ -e  "/var/lock/zram.${zram_label}.lock" ]; then
+  if [ -e  "/var/lock/zram.${zram_label}.lock" ]; then
     eerror "A lock file exists"
     return 1
   fi
@@ -340,12 +340,17 @@ start() {
     case "$zram_type" in
       btrfs)
         _mkfsop="-L ${zram_label} -d single -m single -Oextref,no_holes"
-        _mop="${_mop},barrier,compress=no,${zram_storage_options}"
+        _mop="${_mop},nobarrier,compress=no,${zram_storage_options}"
         ;;
-      ext[2-4])
+      ext2)
+        _tune2fs=1
+        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize"
+        _mop="${_mop},nobarrier,${zram_storage_options}"
+        ;;
+      ext[3-4])
         _tune2fs=1
         _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
-        _mop="${_mop},barrier=0,${zram_storage_options}"
+        _mop="${_mop},nobarrier,${zram_storage_options}"
         ;;
       *)
         if ! [ -x "/usr/bin/mkfs.${zram_type}" ]; then
@@ -418,7 +423,7 @@ stop() {
       fi
       ;;
   esac
-  _cleanup "$_zram"
+  _cleanup "${_zram%%:*}"
   einfo "Removed ${zram_label}"
 }
 
