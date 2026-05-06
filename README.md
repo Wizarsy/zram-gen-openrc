@@ -10,6 +10,8 @@ Create a symbolic link in the format `zram.LABEL` to `zram` in `/etc/init.d`, co
 
 When using a non-preconfigured file system, you can use `@label@` in `zram_storage_mkfs_options` to automatically pass the label. For example, if you want to create a zram device with a FAT32 file system, you can declare `zram_type="fat"` and `zram_storage_mkfs_options="-n @label@ -F 32 -I"`.
 
+If you are using a backing device, create a cron job to periodically push pages using `echo incompressible > /sys/block/zramX/writeback` or for pages not accessed in the last 5 minutes, use `echo 300 > /sys/block/zramX/idle && echo idle > /sys/block/zramX/writeback`
+
 ### General config
 
 | Name                      | Default | Example                                                            |
