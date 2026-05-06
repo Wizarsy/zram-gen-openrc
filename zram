@@ -312,8 +312,7 @@ start() {
     return 1
   fi
   
-  einfo "size - mem_limit - algo - algo_parms - back - wb_limit - wb_batch_size - comp_wb"
-  einfo "${_z_size} - ${_z_limit} - ${zram_comp_algo:-default} - ${zram_algo_params:-default} - ${_z_back:-none} - ${_z_wb_limit:-none} - ${zram_writeback_batch_size:-default} - ${zram_compressed_writeback:-default}"
+  einfo "${_z_size} - ${_z_limit:-0} - ${zram_comp_algo:-default} - ${zram_algo_params:-default} - ${_z_back:-none} - ${_z_wb_limit:-none} - ${zram_writeback_batch_size:-default} - ${zram_compressed_writeback:-default}"
 
   if [ "$zram_type" = "swap" ]; then
     _sop=""
@@ -342,7 +341,6 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
-    einfo "type - swap_discard - swap_priority"
     einfo "swap - ${zram_swap_discard} - ${zram_swap_priority}"
   else
     _mop="defaults"
@@ -419,7 +417,6 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
-    einfo "type - mountpoint - mode - owner:group"
     einfo "${zram_type} - ${zram_storage_mountpoint} - ${zram_storage_mode:-default} - ${zram_storage_owgr:-default}"
   fi
   service_set_value zram "${_zram}:${zram_type}"
