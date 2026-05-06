@@ -10,17 +10,17 @@ Create a symbolic link in the format `zram.LABEL` to `zram` in `/etc/init.d`, co
 
 ### General config
 
-| Name                      | Default | Example                        |
-| :------------------------ | ------- | :----------------------------- |
-| zram_type                 | swap    | swap or ext4                   |
-| zram_size                 | 50%     | 25%, 4GiB, 8192MiB             |
-| zram_mem_limit            | empty   | 10%, 2GiB, 4096MiB             |
-| zram_backing_dev          | empty   | /dev/sda1                      |
-| zram_writeback_limit      | empty   | 400MiB, fixed values only      |
-| zram_writeback_batch_size | empty   | 32, 64...                      |
-| zram_compressed_writeback | empty   | yes/no                         |
-| zram_comp_algo            | empty   | lz4, zstd, lzo...              |
-| zram_algo_params          | empty   | "level=1 dict=/etc/dictionary" |
+| Name                      | Default | Example                                                     |
+| :------------------------ | ------- | :---------------------------------------------------------- |
+| zram_type                 | swap    | swap, ext2, ext3, ext4 or fs that can be created using mkfs |
+| zram_size                 | 50%     | 25%, 4GiB, 8192MiB                                          |
+| zram_mem_limit            | empty   | 10%, 2GiB, 4096MiB                                          |
+| zram_backing_dev          | empty   | /dev/sda1                                                   |
+| zram_writeback_limit      | empty   | 400MiB, relating to the backing device                      |
+| zram_writeback_batch_size | empty   | 32, 64...                                                   |
+| zram_compressed_writeback | empty   | yes/no                                                      |
+| zram_comp_algo            | empty   | lz4, zstd, lzo...                                           |
+| zram_algo_params          | empty   | "level=1 dict=/etc/dictionary"                              |
 
 ### Swap config
 
@@ -31,12 +31,15 @@ Create a symbolic link in the format `zram.LABEL` to `zram` in `/etc/init.d`, co
 
 ### Storage config
 
-| Name                    | Default           | Example          |
-| ----------------------- | ----------------- | ---------------- |
-| zram_storage_options    | noatime,nodiscard | relatime,discard |
-| zram_storage_mountpoint | empty             | /tmp             |
-| zram_storage_mode       | empty             | 777, 1777, 0755  |
-| zram_storage_owgr       | empty             | nobody:nobody    |
+| Name                             | Default           | Example                     |
+| -------------------------------- | ----------------- | --------------------------- |
+| zram_storage_mkfs_options        | empty             | custom mkfs options         |
+| zram_storage_extra_mkfs_options  | empty             | append custom mkfs options  |
+| zram_storage_mount_options       | empty             | custom mount options        |
+| zram_storage_extra_mount_options | noatime,nodiscard | append custom mount options |
+| zram_storage_mountpoint          | empty             | /tmp                        |
+| zram_storage_mode                | empty             | 777, 1777, 0755             |
+| zram_storage_owgr                | empty             | nobody:nobody               |
 
 ## References
 

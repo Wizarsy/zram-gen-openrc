@@ -44,7 +44,10 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_swap_discard:=32767}"
 : "${zram_swap_priority:=both}"
 
-: "${zram_storage_options:=noatime,nodiscard}"
+: "${zram_storage_mkfs_options:=}"
+: "${zram_storage_extra_mkfs_options:=}"
+: "${zram_storage_mount_options:=}"
+: "${zram_storage_extra_mount_options:=noatime,nodiscard}"
 : "${zram_storage_owgr:=}"
 : "${zram_storage_mode:=}"
 : "${zram_storage_mountpoint:=}"
@@ -308,6 +311,9 @@ start() {
     _cleanup "$_zram"
     return 1
   fi
+  
+  einfo "size - mem_limit - algo - algo_parms - back - wb_limit - wb_batch_size - comp_wb"
+  einfo "${_z_size} - ${_z_limit} - ${zram_comp_algo:-default} - ${zram_algo_params:-default} - ${_z_back:-none} - ${_z_wb_limit:-none} - ${zram_writeback_batch_size:-default} - ${zram_compressed_writeback:-default}"
 
   if [ "$zram_type" = "swap" ]; then
     _sop=""
@@ -336,28 +342,29 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
+    einfo "type - swap_discard - swap_priority"
+    einfo "swap - ${zram_swap_discard} - ${zram_swap_priority}"
   else
     _mop="defaults"
     _mkfsop=""
     case "$zram_type" in
       btrfs)
         _mkfsop="-L ${zram_label} -d single -m single -Oextref,no-holes"
-        _mop="${_mop},nobarrier,compress=no,${zram_storage_options}"
+        _mop="${_mop},nobarrier,compress=no"
         ;;
       ext2)
         _tune2fs=1
         _mkfsop="-L ${zram_label} -m0 -Osparse_super,large_file"
-        _mop="${_mop},${zram_storage_options}"
         ;;
       ext3)
         _tune2fs=1
         _mkfsop="-L ${zram_label} -m0 -O^has_journal,sparse_super,dir_index,large_file"
-        _mop="${_mop},barrier=0,${zram_storage_options}"
+        _mop="${_mop},barrier=0"
         ;;
       ext4)
         _tune2fs=1
         _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,^huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
-        _mop="${_mop},barrier=0,${zram_storage_options}"
+        _mop="${_mop},barrier=0"
         ;;
       *)
         if ! [ -x "/usr/bin/mkfs.${zram_type}" ]; then
@@ -367,8 +374,18 @@ start() {
         fi
         ;;
     esac
-
-    eval "set -- _ $_mkfsop"
+    if [ -n "${zram_storage_mkfs_options:-set}" ]; then
+      _nmkfsop=""
+      for op in $zram_storage_mkfs_options; do
+        case $op in
+          @label@) _nmkfsop="${_nmkfsop} ${zram_label}";;
+          *) _nmkfsop="${_nmkfsop} ${op}";;
+        esac
+      done
+    fi
+    _mop="${_mop},${zram_storage_extra_mount_options}"
+    _mkfsop="${_mkfsop} ${zram_storage_extra_mkfs_options}"
+    eval "set -- _ ${_nmkfsop:-$_mkfsop}"
     shift
     if ! mkfs -t "$zram_type" "$@" -- "/dev/${_zram}" > /dev/null; then
       eerror "mkfs ${zram_type} failed"
@@ -385,7 +402,7 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
-    if ! mount -t auto -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null; then
+    if ! mount -t auto -o "${zram_storage_extra_mount_options:-$_mop}" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null; then
       eerror "mount ${zram_storage_mountpoint} failed"
       _cleanup "$_zram"
       return 1
@@ -402,6 +419,8 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
+    einfo "type - mountpoint - mode - owner:group"
+    einfo "${zram_type} - ${zram_storage_mountpoint} - ${zram_storage_mode:-default} - ${zram_storage_owgr:-default}"
   fi
   service_set_value zram "${_zram}:${zram_type}"
   einfo "Successfully created ${zram_label}"
