@@ -226,13 +226,15 @@ start() {
       _back_size=0
       _back_sector_size=0
       _wb_size=""
+      _part=${_z_back##*/}
+      _disk=${_part%[0-9]*}
       _z_wb_limit=""
-      if ! _timeout 5 read -r _back_size < "/sys/class/block/${_z_back##*/}/size"; then
+      if ! _timeout 5 read -r _back_size < "/sys/class/block/${_part}/size"; then
         eerror "Failed to read ${_z_back} size"
         _cleanup "$_zram"
         return 1
       fi
-      if ! _timeout 5 read -r _back_sector_size < "/sys/class/block/${_z_back##*/}/queue/hw_sector_size"; then
+      if ! _timeout 5 read -r _back_sector_size < "/sys/class/block/${_disk}/queue/hw_sector_size"; then
         eerror "Failed to read ${_z_back} sector size"
         _cleanup "$_zram"
         return 1
@@ -390,11 +392,13 @@ start() {
     fi
     if [ -n "${zram_storage_owgr:+set}" ] && ! chown "$zram_storage_owgr" -- "$zram_storage_mountpoint" > /dev/null; then
       eerror "chown ${zram_storage_mountpoint} failed"
+      umount -- "$zram_storage_mountpoint"
       _cleanup "$_zram"
       return 1
     fi
     if [ -n "${zram_storage_mode:+set}" ] && ! chmod "$zram_storage_mode" -- "$zram_storage_mountpoint" > /dev/null; then
       eerror "chmod ${zram_storage_mountpoint} failed"
+      umount -- "$zram_storage_mountpoint"
       _cleanup "$_zram"
       return 1
     fi
