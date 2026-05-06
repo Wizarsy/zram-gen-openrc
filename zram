@@ -458,7 +458,7 @@ stop_post() {
   shift
   if [ -d "/sys/module/zram" ] && ! [ -e "$1" ]; then
     _refcnt=0
-    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
+    if ! _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
       eerror "Failed to read zram refcnt"
       return 1
     fi
