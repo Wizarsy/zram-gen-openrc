@@ -31,12 +31,12 @@ Create a symbolic link in the format `zram.LABEL` to `zram` in `/etc/init.d`, co
 
 ### Storage config
 
-| Name                    | Default   | Example          |
-| ----------------------- | --------- | ---------------- |
-| zram_storage_mountpoint | empty     | /tmp             |
-| zram_storage_options    | noatime   | relatime,discard |
-| zram_storage_mode       | 0775      | 777, 1777, 0755  |
-| zram_storage_owgr       | root:root | nobody:nobody    |
+| Name                    | Default | Example          |
+| ----------------------- | ------- | ---------------- |
+| zram_storage_options    | noatime | relatime,discard |
+| zram_storage_mountpoint | empty   | /tmp             |
+| zram_storage_mode       | empty   | 777, 1777, 0755  |
+| zram_storage_owgr       | empty   | nobody:nobody    |
 
 ## References
 

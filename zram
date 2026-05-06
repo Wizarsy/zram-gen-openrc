@@ -41,13 +41,13 @@ zram_label="${RC_SVCNAME#*.}"
 : "${zram_comp_algo:=}"
 : "${zram_algo_params:=}"
 
-: "${zram_swap_discard:=}"
-: "${zram_swap_priority:=}"
+: "${zram_swap_discard:=32767}"
+: "${zram_swap_priority:=both}"
 
-: "${zram_storage_mountpoint:=}"
-: "${zram_storage_mode:=}"
-: "${zram_storage_options:=}"
+: "${zram_storage_options:=noatime}"
 : "${zram_storage_owgr:=}"
+: "${zram_storage_mode:=}"
+: "${zram_storage_mountpoint:=}"
 
 depend() {
   need localmount
@@ -80,95 +80,33 @@ _timeout() {
   return 1
 }
 
-_checklocks() {
-  set -- /var/lock/zram.*.lock
-  [ -e "$1" ] && return 1
-  return 0
-}
-
 _cleanup() {
   _zram="$1"
   [ -e "/var/lock/zram.${zram_label}.lock" ] \
     && rm "/var/lock/zram.${zram_label}.lock"
   _timeout 5 echo 1 > "/sys/block/${_zram}/reset" \
-    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove \
-    && einfo "Removed zram: ${zram_label}"
+    && _timeout 5 echo "${_zram##*zram}" > /sys/class/zram-control/hot_remove
 }
 
-_mkswap() {
-  _zram="$1"
-  _sop=""
-  if { [ -n "${zram_swap_priority-set}" ] && ! _isnum "$zram_swap_priority"; } \
-    || { _isnum "$zram_swap_priority" && { [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; }; then
-    ewarn "Invalid swap priority, using default."
-    unset zram_swap_priority
-  fi
-  _sop="-p ${zram_swap_priority:=32767}"
-  case "$zram_swap_discard" in
-    once|pages) _sop="${_sop} -d${zram_swap_discard}";;
-    none|[Nn]|[Nn][Oo]);;
-    both|*) _sop="${_sop} -d";;
+_calc_size() {
+  _total="$1"
+  _size="$2"
+  _return=""
+  _isnum "$_size" \
+    && echo "${_size}MiB" \
+    && return 0
+  case "${_size##*[0-9]}" in
+    %)
+      _return="$((${_size%\%} * _total / 100))MiB"
+      ;;
+    [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
+      _return="$_size"
+      ;;
+    *)
+      return 1
+      ;;
   esac
-  eval "set -- _ $_sop"
-  shift
-  if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if swapon "$@" -- "/dev/${_zram}" > /dev/null 2>&1; then
-      einfo "Successfully created zram swap: ${zram_label}"
-    else
-      eerror "Failed to enable zram swap: ${zram_label}"
-    fi
-  else
-    eerror "Failed to create zram swap: ${zram_label}"
-  fi
-}
-
-_rmswap() {
-  _zram="$1"
-  for _swap in $(swapon --show=name --raw --noheadings); do
-    if [ "/dev/${_zram}" = "$_swap" ]; then
-      swapoff -- "/dev/${_zram}" > /dev/null 2>&1
-      break
-    fi
-  done
-}
-
-_mkstorage() {
-  _zram="$1"
-  _fsop="huge_file,sparse_super,extent,^uninit_bg,dir_nlink,extra_isize,^has_journal"
-  _mop="defaults"
-  _mop="${_mop},${zram_storage_options:=noatime}"
-  if ! awk -v uwgr="$zram_storage_owgr" 'BEGIN {if (uwgr ~ /(^[a-z_][a-z0-9_-]*)$|(^[a-z_][a-z0-9_-]*:[a-z_][a-z0-9_-]*)$/) {exit 0} else {exit 1}}'; then
-    ewarn "Ivalid value owner:group, using default"
-    unset zram_storage_owgr
-  fi
-  if ! awk -v mode="$zram_storage_mode" 'BEGIN {if (mode ~ /^[0-1]?[0-7]{3}$/) {exit 0} else {exit 1}}'; then
-    ewarn "Ivalid value for mode, using default"
-    unset zram_storage_mode
-  fi
-  if mkfs.ext4 -m0 -O"${_fsop}" -L "$zram_label" -- "/dev/${_zram}" > /dev/null 2>&1 \
-    && tune2fs -c0 -i0 -- "/dev/${_zram}" > /dev/null 2>&1; then
-    if [ -n "$zram_storage_mountpoint" ] \
-      && mkdir -p -- "$zram_storage_mountpoint" > /dev/null 2>&1 \
-      && mount -t ext4 -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" \
-      && chmod "${zram_storage_mode:=0775}" -- "$zram_storage_mountpoint" \
-      && chown "${zram_storage_owgr:=root:root}" -- "$zram_storage_mountpoint"; then
-      einfo "Successfully created zram storage: ${zram_label}"
-    else
-      eerror "Failed to mount zram storage: ${zram_label}"   
-    fi
-  else
-    eerror "Failed to make zram storage: ${zram_label}"
-  fi
-}
-
-_rmstorage() {
-  _zram="$1"
-  while read -r _dev _; do
-    if [ "/dev/${_zram}" = "$_dev" ]; then
-      umount -- "/dev/${_zram}" > /dev/null 2>&1
-      break
-    fi
-  done < /proc/mounts
+  echo "$_return"
 }
 
 start_pre() {
@@ -181,8 +119,12 @@ start_pre() {
     eerror "Zram device with label ${zram_label} already exists"
     return 1
   fi
+  if ! [ -e  "/var/lock/zram.${zram_label}.lock" ]; then
+    eerror "A lock file exists"
+    return 1
+  fi
+  ebegin "Starting ${zram_label}"
   if ! [ -d "/sys/module/zram" ]; then
-    ebegin "Starting zram"
     ! modprobe --dry-run zram > /dev/null 2>&1 \
     || { modprobe zram > /dev/null 2>&1 \
         && einfo "Zram module loaded"; }
@@ -191,137 +133,264 @@ start_pre() {
 }
 
 start() {
-  _zram=""
+  _mem_header=""
   _mem_size=""
-  _mem_limit=""
-  _hot=0
-  _refcnt=0
   _mem_total=0
+
+  _zram=""
+  _z_size=""
+  _z_limit=""
+
+  _hot=0
   _state=0
 
-  for _zram_dev in /sys/block/zram*; do
-    _timeout 5 read -r _state < "${_zram_dev}/initstate"
-    if [ "$_state" -eq 0 ]; then
-      _zram="${_zram_dev##*/}"
-      break
-    fi
-  done
-  if [ -z "$_zram" ]; then
-    if _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
-        _zram="zram${_hot}"
-    else
-      eerror "Failed to hot add a zram device"
-      return 1
-    fi
-  fi
-
-  if ! [ -e  "/var/lock/zram.${zram_label}.lock" ] && ! touch "/var/lock/zram.${zram_label}.lock"; then
-    eerror "A lock file exists"
+  if ! touch "/var/lock/zram.${zram_label}.lock"; then
+    eerror "Failed to create lock file"
     return 1
   fi
 
-  while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
-  _mem_total="$((_mem_size / 1024))"
+  for z in /sys/block/zram*; do
+    if ! _timeout 5 read -r _state < "${z}/initstate"; then
+      eerror "Failed to read existing zram state"
+      return 1
+    fi
+    if [ "$_state" -eq 0 ]; then
+      _zram="${z##*/}"
+      break
+    fi
+  done
 
-  case "${zram_size##*[0-9]}" in
-    %)
-      _mem_size="$((${zram_size%\%} * _mem_total / 100))MiB"
-      ;;
-    [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
-      _mem_size="$zram_size"
-      ;;
-    *)
-      ewarn "Invalid value for size, using default"
-      _mem_size="$((50 * _mem_total / 100))MiB"
-      ;;
-  esac
-
-  if [ -n "${zram_mem_limit-set}" ]; then
-    case "${zram_mem_limit##*[0-9]}" in
-      %)
-        _mem_limit="$((${zram_mem_limit%\%} * _mem_total / 100))MiB"
-        ;;
-      [KkMmGgTtPpEeZzYy]|[KkMmGgTtPpEeZzYy][Ii][Bb])
-        _mem_limit="$zram_mem_limit"
-        ;;
-      *)
-        ewarn "Invalid value for memory limit"
-        ;;
-    esac
+  if [ -z "$_zram" ]; then
+    if ! _timeout 5 read -r _hot < /sys/class/zram-control/hot_add; then
+      eerror "Failed to hot add a zram device"
+      return 1
+    fi
+    _zram="zram${_hot}"
   fi
 
-  einfo "Initializing zram device: /dev/${_zram}"
+  while read -r _mem_header _mem_size _; do [ "$_mem_header" != "MemTotal:" ] || break; done < /proc/meminfo
+
+  _mem_total="$((_mem_size>>10))"
   
-  if ! _timeout 5 echo 1 > "/sys/block/${_zram}/reset"; then
-    eerror "Failed to reset zram device /dev/${_zram}: device or resource busy"
+  _z_size="$(_calc_size "$_mem_total" "$zram_size")"
+
+  if [ -z "$_z_size" ] ; then
+    eerror "Invalid value for size"
     _cleanup "$_zram"
     return 1
   fi
 
-  if [ -n "${zram_backing_dev-set}" ]; then
-    if echo "$zram_backing_dev" > "/sys/block/${_zram}/backing_dev" 2> /dev/null; then
-      if [ -n "${zram_comp_algo-set}" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
-        [ -n "${zram_algo_params-set}" ] \
-          && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
-          || ewarn "Invalid compression algorithm parameters"; }
-      else
-        ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
+  if [ -n "${zram_mem_limit:+set}" ]; then
+    _z_limit="$(_calc_size "$_mem_total" "$zram_mem_limit")"
+    if [ -z "$_z_limit" ]; then
+      eerror "Invalid value for memory limit"
+      _cleanup "$_zram"
+      return 1
+    fi
+  fi
+
+  if [ -n "${zram_backing_dev:+set}" ]; then
+    _mount=""
+    _back=""
+    _z_back=""
+    if ! [ -b "$zram_backing_dev" ]; then
+      eerror "Invalid value for backing device"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if ! [ -e "/sys/class/block/${zram_backing_dev##*/}/partition" ]; then
+      eerror "Backing device must be a partition"
+      _cleanup "$_zram"
+      return 1
+    fi
+    _mount="$(mountinfo -n "$zram_backing_dev" 2> /dev/null)"
+    if [ -n "$_mount" ]; then
+      eerror "${zram_backing_dev} already in use by ${_mount}"
+      _cleanup "$_zram"
+      return 1
+    fi
+    for z in /sys/block/zram*; do
+      if ! _timeout 5 read -r _back < "${z}/backing_dev"; then
+        eerror "Failed to read existing zram backing device"
+        _cleanup "$_zram"
+        return 1
       fi
-      case $zram_compressed_writeback in
-          [Yy]|[Yy][Ee][Ss]) echo 1 > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
-          [Nn]|[Nn][Oo]|*) echo 0 > "/sys/block/${_zram}/compressed_writeback" 2> /dev/null || ewarn "Failed to enable /dev/${_zram} compressed writeback";;
-      esac
-      echo "$_mem_size" > "/sys/block/${_zram}/disksize" 2> /dev/null
-      if [ -n "${zram_writeback_limit-set}" ] && ! echo "$((${zram_writeback_limit%%[A-Za-z]*}<<20>>12))" > "/sys/block/${_zram}/writeback_limit" 2> /dev/null \
-        || ! echo 1 > "/sys/block/${_zram}/writeback_limit_enable" 2> /dev/null; then
-        ewarn "Failed to write /dev/${_zram} writeback limit"
+      if [ "$zram_backing_dev" = "$_back" ]; then
+        eerror "${zram_backing_dev} already in use by ${z##*/}"
+        _cleanup "$_zram"
+        return 1
       fi
-      if [ -n "${zram_writeback_batch_size-set}" ] && ! echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size" 2> /dev/null; then
-        ewarn "Failed to write /dev/${_zram} writeback batch size"
+    done
+    _z_back="$zram_backing_dev"
+    if [ -n "${zram_writeback_limit:+set}" ]; then
+      _back_size=0
+      _back_sector_size=0
+      _wb_size=""
+      _z_wb_limit=""
+      if ! _timeout 5 read -r _back_size < "/sys/class/block/${_z_back##*/}/size"; then
+        eerror "Failed to read ${_z_back} size"
+        _cleanup "$_zram"
+        return 1
       fi
-    else
+      if ! _timeout 5 read -r _back_sector_size < "/sys/class/block/${_z_back##*/}/queue/hw_sector_size"; then
+        eerror "Failed to read ${_z_back} sector size"
+        _cleanup "$_zram"
+        return 1
+      fi
+      _wb_size="$(_calc_size "$(((_back_size * _back_sector_size)>>20))" "$zram_writeback_limit")"
+      if [ -z "$_wb_size" ] ; then
+        eerror "Invalid value for writeback limit"
+        _cleanup "$_zram"
+        return 1
+      fi
+      _z_wb_limit="$((${_wb_size%%[A-Za-z]*}<<20>>12))"
+    fi
+  fi
+
+  einfo "Initializing /dev/${_zram}"
+  
+  if ! _timeout 5 echo 1 > "/sys/block/${_zram}/reset"; then
+    eerror "Failed to reset /dev/${_zram}"
+    _cleanup "$_zram"
+    return 1
+  fi
+
+  if [ -n "${_z_back:+set}" ]; then
+    if ! _timeout 5 echo "$_z_back" > "/sys/block/${_zram}/backing_dev"; then 
       eerror "Failed to write /dev/${_zram} backing device"
       _cleanup "$_zram"
       return 1
     fi
-  else
-    if [ -n "${zram_comp_algo-set}" ] && echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm" 2> /dev/null; then
-      [ -n "${zram_algo_params-set}" ] \
-        && { echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params" 2> /dev/null \
-        || ewarn "Invalid compression algorithm parameters"; }
-    else
-      ewarn "Invalid compression algorithm chosen, using default. This kernel may not support this algorithm."
+
+    if [ -n "${_z_wb_limit:+set}" ]; then
+      if ! _timeout 5 echo "$_z_wb_limit" > "/sys/block/${_zram}/writeback_limit"; then
+        eerror "Failed to write /dev/${_zram} writeback limit"
+        _cleanup "$_zram"
+        return 1
+      fi
+
+      if ! _timeout 5 echo 1 > "/sys/block/${_zram}/writeback_limit_enable"; then
+        eerror "Failed to enable /dev/${_zram} writeback limit"
+        _cleanup "$_zram"
+        return 1
+      fi
     fi
-    if ! echo "$_mem_size" > "/sys/block/${_zram}/disksize" 2> /dev/null; then
-      eerror "Failed to write /dev/${_zram} size"
+
+    if [ -n "${zram_compressed_writeback:+set}" ] && yesno "$zram_compressed_writeback" && ! _timeout 5 echo 1 > "/sys/block/${_zram}/compressed_writeback"; then
+      eerror "Failed to enable /dev/${_zram} compressed writeback"
+      _cleanup "$_zram"
+      return 1
+    fi
+
+    if [ -n "${zram_writeback_batch_size:+set}" ] && _isnum "$zram_writeback_batch_size" && ! _timeout 5 echo "$zram_writeback_batch_size" > "/sys/block/${_zram}/writeback_batch_size"; then
+      eerror "Failed to write /dev/${_zram} writeback batch size"
       _cleanup "$_zram"
       return 1
     fi
   fi
-  
-  if [ -n "${_mem_limit-set}" ] && ! echo "$zram_mem_limit" > "/sys/block/${_zram}/mem_limit" 2> /dev/null; then
-    eerror "Failed to write /dev/${_zram} memory limit"
+
+  if [ -n "${zram_comp_algo:+set}" ] && ! _timeout 5 echo "$zram_comp_algo" > "/sys/block/${_zram}/comp_algorithm"; then
+    eerror "Failed to write /dev/${_zram} compression algorithm. This kernel may not support this algorithm."
     _cleanup "$_zram"
     return 1
   fi
-  
-  case "$zram_type" in
-    swap)
-      service_set_value zram "${_zram}:${zram_type}"
-      _mkswap "$_zram" \
-        || ! _cleanup "$_zram"
-      ;;
-    ext4)
-      service_set_value zram "${_zram}:${zram_type}"
-      _mkstorage "$_zram" \
-        || ! _cleanup "$_zram"
-      ;;
-    *) 
+
+  if [ -n "${zram_algo_params:+set}" ] && ! _timeout 5 echo "algo=${zram_comp_algo} ${zram_algo_params}" > "/sys/block/${_zram}/algorithm_params"; then
+    eerror "Failed to write /dev/${_zram} compression algorithm parameters"
+    _cleanup "$_zram"
+    return 1
+  fi
+
+  if ! _timeout 5 echo "$_z_size" > "/sys/block/${_zram}/disksize"; then
+    eerror "Failed to write /dev/${_zram} size"
+    _cleanup "$_zram"
+    return 1
+  fi
+
+  if [ "$zram_type" = "swap" ]; then
+    _sop=""
+    if { [ -n "${zram_swap_priority:+set}" ] && ! _isnum "$zram_swap_priority"; } || { _isnum "$zram_swap_priority" && { [ "$zram_swap_priority" -gt 32767 ] || [ "$zram_swap_priority" -lt -1 ]; }; }; then
+      eerror "Invalid value for swap priority"
       _cleanup "$_zram"
-      eerror "Invalid zram type"
-      ;;
-  esac
-  eend "$?" "Failed to create zram: ${zram_label}"
+      return 1
+    fi
+    _sop="-p ${zram_swap_priority}"
+    case "$zram_swap_discard" in
+      both) _sop="${_sop} -d";;
+      once|pages) _sop="${_sop} -d${zram_swap_discard}";;
+      none|[Nn]|[Nn][Oo]|"");;
+      *) eerror "Invalid value for swap discard"; _cleanup "$_zram"; return 1;;
+    esac
+    eval "set -- _ $_sop"
+    shift
+    if mkswap -L "$zram_label" -- "/dev/${_zram}" > /dev/null; then
+      if ! swapon "$@" -- "/dev/${_zram}" > /dev/null; then
+        eerror "swapon /dev/${_zram} failed"
+        _cleanup "$_zram"
+        return 1
+      fi
+    else
+      eerror "mkswap /dev/${_zram} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+  else
+    _mop="defaults"
+    _mkfsop=""
+    case "$zram_type" in
+      btrfs)
+        _mkfsop="-L ${zram_label} -d single -m single -Oextref,no_holes"
+        _mop="${_mop},barrier,compress=no,${zram_storage_options}"
+        ;;
+      ext[2-4])
+        _tune2fs=1
+        _mkfsop="-L ${zram_label} -m0 -O^has_journal,^uninit_bg,huge_file,sparse_super,dir_index,large_file,large_dir,dir_nlink,extra_isize,extent"
+        _mop="${_mop},barrier=0,${zram_storage_options}"
+        ;;
+      *)
+        if ! [ -x "/usr/bin/mkfs.${zram_type}" ]; then
+          eerror "Invalid fs type"
+          _cleanup "$_zram"
+          return 1
+        fi
+        ;;
+    esac
+
+    eval "set -- _ $_mkfsop"
+    shift
+    if ! mkfs -t "$zram_type" "$@" -- "/dev/${_zram}" > /dev/null; then
+      eerror "mkfs ${zram_type} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if [ -n "${_tune2fs:+set}" ] && ! tune2fs -c0 -i0 -m0 -- "/dev/${_zram}" > /dev/null; then
+      eerror "tune2fs ${zram_type} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if ! mkdir -p -- "$zram_storage_mountpoint" > /dev/null; then
+      eerror "mkdir ${zram_storage_mountpoint} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if ! mount -t "${zram_type}" -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null; then
+      eerror "mount ${zram_storage_mountpoint} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if [ -n "${zram_storage_owgr:+set}" ] && ! chown "$zram_storage_owgr" -- "$zram_storage_mountpoint" > /dev/null; then
+      eerror "chown ${zram_storage_mountpoint} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+    if [ -n "${zram_storage_mode:+set}" ] && ! chmod "$zram_storage_mode" -- "$zram_storage_mountpoint" > /dev/null; then
+      eerror "chmod ${zram_storage_mountpoint} failed"
+      _cleanup "$_zram"
+      return 1
+    fi
+  fi
+  service_set_value zram "${_zram}:${zram_type}"
+  einfo "Successfully created ${zram_label}"
 }
 
 stop() {
@@ -330,22 +399,39 @@ stop() {
   _zram="$(service_get_value zram)"
   case ${_zram##*:} in
     swap)
-      _rmswap "${_zram%%:*}" \
-        && _cleanup "$_zram"
+      while read -r _swap _; do
+        if [ "/dev/${_zram%%:*}" = "$_swap" ]; then
+          if ! _timeout 5 swapoff -- "/dev/${_zram%%:*}" > /dev/null; then
+            eerror "swapoff /dev/${_zram%%:*} failed"
+            return 1
+          fi
+          break
+        fi
+      done < /proc/swaps
       ;;
-    ext4)
-      _rmstorage "${_zram%%:*}" \
-        && _cleanup "$_zram"
+    *)
+      if mountinfo -n "/dev/${_zram%%:*}" > /dev/null 2>&1; then
+        if ! _timeout 5 umount -- "/dev/${_zram%%:*}" > /dev/null; then
+          eerror "umount /dev/${_zram%%:*} failed"
+          return 1
+        fi
+      fi
       ;;
   esac
-  eend $? "Failed to remove zram: ${zram_label}"
+  _cleanup "$_zram"
+  einfo "Removed ${zram_label}"
 }
 
 stop_post() {
   { [ "$RC_CMD" = "restart" ] || yesno "$RC_GOINGDOWN"; } && return 0
-  if [ -d "/sys/module/zram" ] && _checklocks; then
+  eval "set -- _ /var/lock/zram.*.lock"
+  shift
+  if [ -d "/sys/module/zram" ] && ! [ -e "$1" ]; then
     _refcnt=0
-    _timeout 5 read -r _refcnt < /sys/module/zram/refcnt
+    if _timeout 5 read -r _refcnt < /sys/module/zram/refcnt; then
+      eerror "Failed to read zram refcnt"
+      return 1
+    fi
     if [ "$_refcnt" -eq 0 ]; then
       ! modprobe -r --dry-run -- zram > /dev/null 2>&1 \
       || { modprobe -r -- zram > /dev/null 2>&1 \
