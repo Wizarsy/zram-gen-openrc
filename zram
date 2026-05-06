@@ -383,7 +383,7 @@ start() {
       _cleanup "$_zram"
       return 1
     fi
-    if ! mount -t "${zram_type}" -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null; then
+    if ! mount -t auto -o "$_mop" -- "/dev/${_zram}" "$zram_storage_mountpoint" > /dev/null; then
       eerror "mount ${zram_storage_mountpoint} failed"
       _cleanup "$_zram"
       return 1
